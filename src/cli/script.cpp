@@ -230,12 +230,12 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             if (g == morphisms_.end() || f == morphisms_.end()) {
                 throw std::invalid_argument("compose references an unknown morphism");
             }
-            auto result = compose(*g->second, *f->second);
+            auto result = compose(g->second, f->second);
             if (!result) {
                 output << fmt::format("=> invalid: {}\n", to_string(result.error()));
                 return false;
             }
-            output << fmt::format("=> valid morphism: {}\n", result->name());
+            output << fmt::format("=> valid morphism: {}\n", (*result)->name());
             return true;
         }
 

@@ -33,6 +33,8 @@ cmake --build build
 ```sh
 ./build/pointerverse lab examples/minimal_reality.pv
 ./build/pointerverse repl
+./build/pointerverse trace replay trace.jsonl
+./build/pointerverse trace verify trace.jsonl --expect-hash 0x9f12a77103beaa20
 ```
 
 ## DSL sample

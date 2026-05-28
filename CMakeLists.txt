@@ -25,6 +25,7 @@ add_library(pointerverse_core
     src/law/verifier.cpp
     src/observer/observer.cpp
     src/trace/recorder.cpp
+    src/trace/replayer.cpp
 )
 
 target_include_directories(pointerverse_core
@@ -65,11 +66,16 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/core/core_tests.cpp
         tests/core/delta_tests.cpp
         tests/law/law_tests.cpp
+        tests/trace/replay_tests.cpp
     )
     target_link_libraries(pointerverse_tests
         PRIVATE
             pointerverse_core
             Catch2::Catch2WithMain
+    )
+    target_compile_definitions(pointerverse_tests
+        PRIVATE
+            POINTERVERSE_CLI_PATH="$<TARGET_FILE:pointerverse>"
     )
 
     include(Catch)

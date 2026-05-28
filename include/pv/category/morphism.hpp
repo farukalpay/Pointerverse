@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -60,7 +61,11 @@ private:
 
 class ComposedMorphism final : public Morphism {
 public:
-    ComposedMorphism(std::string name, MorphismSignature signature);
+    ComposedMorphism(
+        std::string name,
+        MorphismSignature signature,
+        std::shared_ptr<const Morphism> first,
+        std::shared_ptr<const Morphism> second);
 
     [[nodiscard]] std::string_view name() const override;
     [[nodiscard]] MorphismSignature signature() const override;
@@ -69,6 +74,8 @@ public:
 private:
     std::string name_;
     MorphismSignature signature_;
+    std::shared_ptr<const Morphism> first_;
+    std::shared_ptr<const Morphism> second_;
 };
 
 }  // namespace pv

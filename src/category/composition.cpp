@@ -2,8 +2,39 @@
 #include "pv/category/composition.hpp"
 
 #include <fmt/format.h>
+#include <memory>
+#include <utility>
 
 namespace pv {
+namespace {
+
+Selection project_selection(const Selection& selection, const WorldSnapshot& snapshot) {
+    Selection out;
+    for (const auto object : selection.objects) {
+        if (snapshot.contains(object)) {
+            out.objects.push_back(object);
+        }
+    }
+    for (const auto pointer : selection.pointers) {
+        if (snapshot.pointer(pointer) != nullptr) {
+            out.pointers.push_back(pointer);
+        }
+    }
+    return out;
+}
+
+Delta composition_failure(std::string_view name, std::string reason) {
+    Delta delta;
+    delta.events.push_back(TraceEvent{
+        {},
+        "morphism.compose.rejected",
+        {{"name", std::string{name}}, {"reason", std::move(reason)}},
+        {}
+    });
+    return delta;
+}
+
+}  // namespace
 
 IdentityMorphism::IdentityMorphism(TypeId type) : type_(type) {}
 
@@ -45,7 +76,7 @@ Delta DefinedMorphism::apply(const WorldSnapshot& snapshot, const Selection& sel
             continue;
         }
         if (signature_.domain != signature_.codomain) {
-            delta.updates.push_back(ObjectUpdate{object, signature_.codomain, std::nullopt});
+            delta.updates.push_back(ObjectUpdate{ObjectRef{object}, signature_.codomain, std::nullopt});
         }
     }
     delta.events.push_back(TraceEvent{
@@ -57,8 +88,15 @@ Delta DefinedMorphism::apply(const WorldSnapshot& snapshot, const Selection& sel
     return delta;
 }
 
-ComposedMorphism::ComposedMorphism(std::string name, MorphismSignature signature)
-    : name_(std::move(name)), signature_(signature) {}
+ComposedMorphism::ComposedMorphism(
+    std::string name,
+    MorphismSignature signature,
+    std::shared_ptr<const Morphism> first,
+    std::shared_ptr<const Morphism> second)
+    : name_(std::move(name)),
+      signature_(signature),
+      first_(std::move(first)),
+      second_(std::move(second)) {}
 
 std::string_view ComposedMorphism::name() const {
     return name_;
@@ -68,27 +106,48 @@ MorphismSignature ComposedMorphism::signature() const {
     return signature_;
 }
 
-Delta ComposedMorphism::apply(const WorldSnapshot&, const Selection& selection) const {
-    Delta delta;
-    delta.events.push_back(TraceEvent{
+Delta ComposedMorphism::apply(const WorldSnapshot& snapshot, const Selection& selection) const {
+    if (!first_ || !second_) {
+        return composition_failure(name_, "composition has a null child morphism");
+    }
+
+    const auto first_delta = first_->apply(snapshot, selection);
+    const auto mid = SnapshotOverlay{snapshot}.apply(first_delta);
+    if (!mid.has_value()) {
+        return composition_failure(name_, fmt::format("first morphism overlay failed: {}", to_string(mid.error())));
+    }
+
+    const auto second_delta = second_->apply(*mid, project_selection(selection, *mid));
+    auto merged = merge_sequential(snapshot, first_delta, second_delta);
+    if (!merged.has_value()) {
+        return composition_failure(name_, fmt::format("sequential merge failed: {}", to_string(merged.error())));
+    }
+
+    merged->events.push_back(TraceEvent{
         {},
-        "morphism.apply",
+        "morphism.compose",
         {{"name", name_}, {"kind", "composition"}},
         {{"selected_objects", static_cast<double>(selection.objects.size())}}
     });
-    return delta;
+    return *merged;
 }
 
-std::expected<ComposedMorphism, CompositionError> compose(const Morphism& g, const Morphism& f) {
-    const auto g_signature = g.signature();
-    const auto f_signature = f.signature();
+std::expected<std::shared_ptr<const Morphism>, CompositionError>
+compose(std::shared_ptr<const Morphism> g, std::shared_ptr<const Morphism> f) {
+    if (!g || !f) {
+        return std::unexpected(CompositionError::BrokenInvariant);
+    }
+
+    const auto g_signature = g->signature();
+    const auto f_signature = f->signature();
     if (f_signature.codomain != g_signature.domain) {
         return std::unexpected(CompositionError::DomainCodomainMismatch);
     }
-    return ComposedMorphism{
-        fmt::format("{} after {}", g.name(), f.name()),
-        MorphismSignature{f_signature.domain, g_signature.codomain}
-    };
+    return std::make_shared<ComposedMorphism>(
+        fmt::format("{} after {}", g->name(), f->name()),
+        MorphismSignature{f_signature.domain, g_signature.codomain},
+        std::move(f),
+        std::move(g));
 }
 
 std::string to_string(CompositionError error) {

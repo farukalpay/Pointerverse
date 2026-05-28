@@ -2,6 +2,7 @@
 #pragma once
 
 #include <expected>
+#include <memory>
 
 #include "pv/category/morphism.hpp"
 
@@ -16,8 +17,8 @@ enum class CompositionError {
     BrokenInvariant
 };
 
-[[nodiscard]] std::expected<ComposedMorphism, CompositionError>
-compose(const Morphism& g, const Morphism& f);
+[[nodiscard]] std::expected<std::shared_ptr<const Morphism>, CompositionError>
+compose(std::shared_ptr<const Morphism> g, std::shared_ptr<const Morphism> f);
 
 [[nodiscard]] std::string to_string(CompositionError error);
 

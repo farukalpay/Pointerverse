@@ -3,3 +3,4 @@
 
 #include "pv/trace/event.hpp"
 #include "pv/trace/recorder.hpp"
+#include "pv/trace/replayer.hpp"

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "pv/core/delta.hpp"
@@ -31,6 +33,29 @@ struct EvolveResult {
     std::vector<LawStatus> last_law_statuses;
 };
 
+class EvolutionRule {
+public:
+    virtual ~EvolutionRule() = default;
+
+    [[nodiscard]] virtual Delta step(const WorldSnapshot& snapshot, Epoch next) const = 0;
+};
+
+class NoOpEvolution final : public EvolutionRule {
+public:
+    [[nodiscard]] Delta step(const WorldSnapshot& snapshot, Epoch next) const override;
+};
+
+class EvolutionProgram {
+public:
+    EvolutionProgram();
+    explicit EvolutionProgram(std::vector<std::shared_ptr<const EvolutionRule>> rules);
+
+    [[nodiscard]] Delta step(const WorldSnapshot& snapshot, Epoch next) const;
+
+private:
+    std::vector<std::shared_ptr<const EvolutionRule>> rules_;
+};
+
 class World {
 public:
     explicit World(std::string name = "world", WorldId id = WorldId{1});
@@ -51,6 +76,7 @@ public:
     [[nodiscard]] Delta existence_delta(ObjectId object, ExistenceState state);
 
     [[nodiscard]] CommitResult commit(const Delta& delta, const Verifier& verifier);
+    [[nodiscard]] EvolveResult evolve(std::size_t steps, const Verifier& verifier, const EvolutionProgram& program);
     [[nodiscard]] EvolveResult evolve(std::size_t steps, const Verifier& verifier);
     [[nodiscard]] WorldSnapshot snapshot() const;
 
