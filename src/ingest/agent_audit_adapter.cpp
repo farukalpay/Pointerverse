@@ -95,6 +95,36 @@ NormalizedAuditEvent AgentAuditAdapter::normalize(const EvidenceEvent& event) co
             "File");
     }
 
+    if (action_is(event.action, {"create_file", "tool.create_file"})) {
+        return make_event(
+            event,
+            require_value(event.actor, "agent", event),
+            "Agent",
+            "creates",
+            require_value(target_or_attr(event, {"path", "file", "target"}), "path", event),
+            "File");
+    }
+
+    if (action_is(event.action, {"delete_file", "tool.delete_file"})) {
+        return make_event(
+            event,
+            require_value(event.actor, "agent", event),
+            "Agent",
+            "deletes",
+            require_value(target_or_attr(event, {"path", "file", "target"}), "path", event),
+            "File");
+    }
+
+    if (action_is(event.action, {"rename_file", "tool.rename_file"})) {
+        return make_event(
+            event,
+            require_value(event.actor, "agent", event),
+            "Agent",
+            "renames",
+            require_value(target_or_attr(event, {"path", "file", "target"}), "path", event),
+            "File");
+    }
+
     if (action_is(event.action, {"create_pr", "github.create_pr"})) {
         return make_event(
             event,

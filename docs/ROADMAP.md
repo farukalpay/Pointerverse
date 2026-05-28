@@ -126,7 +126,32 @@ Supported JSONL v1 examples:
 {"id":"4","event":"ci.test_passed","pr":"PR42","test":"Tests","ts":1710000003}
 ```
 
-## Phase 6 - Realms Layer
+## Phase 6 - Pointerverse Guard
+
+Turn Pointerverse Audit into a one-command PR risk guard for real repositories.
+
+Status: implemented.
+
+Delivered:
+
+- `pointerverse guard run` CLI for git refs and directory-demo diffs.
+- Git diff adapter that maps name-status changes into evidence events.
+- PR guard policy pack for missing tests, secret-like patterns, workflows,
+  lockfiles, generated output, large diffs, and deleted tests.
+- Text, Markdown, JSON, and SARIF guard reports.
+- Default `.pvstore`, `audit-report.md`, `audit-report.json`, and `audit.sarif`
+  artifacts.
+- Composite GitHub Action wrapper and PR guard demo fixture.
+
+Primary CLI surface:
+
+```sh
+pointerverse guard run --repo . --base origin/main --mode observe
+pointerverse guard run --repo . --base origin/main --format markdown --out audit-report.md
+pointerverse guard run --repo examples/pr_guard/after --base ../before --out report.md --format markdown
+```
+
+## Phase 7 - Realms Layer
 
 Introduce symbolic pressure, recurrence, inner regions, and mythic continuity
 only as a layer above lawful graph dynamics.
@@ -136,7 +161,7 @@ Status: deferred.
 Do not start this phase until Pointerverse Audit has stronger query ergonomics,
 more temporal law coverage, and real workflow/agent traces.
 
-## Phase 7 - Audit Hardening
+## Phase 8 - Audit Hardening
 
 Next after M5:
 

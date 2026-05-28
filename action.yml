@@ -1,0 +1,42 @@
+name: Pointerverse Guard
+description: Audit pull request diffs with Pointerverse Guard.
+
+inputs:
+  base:
+    description: Base git ref for the diff.
+    required: false
+    default: origin/main
+  mode:
+    description: observe or strict.
+    required: false
+    default: observe
+  report:
+    description: Markdown report path.
+    required: false
+    default: audit-report.md
+  format:
+    description: text, json, markdown, or sarif.
+    required: false
+    default: markdown
+  sarif:
+    description: SARIF output path.
+    required: false
+    default: audit.sarif
+  repo:
+    description: Repository workspace to audit.
+    required: false
+    default: .
+
+runs:
+  using: composite
+  steps:
+    - name: Run Pointerverse Guard
+      shell: bash
+      run: ${{ github.action_path }}/scripts/pointerverse-guard-action.sh
+      env:
+        POINTERVERSE_GUARD_BASE: ${{ inputs.base }}
+        POINTERVERSE_GUARD_MODE: ${{ inputs.mode }}
+        POINTERVERSE_GUARD_REPORT: ${{ inputs.report }}
+        POINTERVERSE_GUARD_FORMAT: ${{ inputs.format }}
+        POINTERVERSE_GUARD_SARIF: ${{ inputs.sarif }}
+        POINTERVERSE_GUARD_REPO: ${{ inputs.repo }}

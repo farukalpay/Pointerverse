@@ -1,14 +1,17 @@
 # Pointerverse
 
-Pointerverse is a C++ audit engine where objects exist through typed relations,
-transformations compose as morphisms, and every graph transition is admitted or
-rejected by explicit laws.
+Pointerverse is a C++ PR guard that turns git diffs and agent/workflow evidence
+into replayable, law-checked audit graphs.
 
-The first product domain is **Pointerverse Audit**: replayable, law-checked
-graph history for AI agents, workflows, and tool execution. Agents, tools,
-files, pull requests, tests, secrets, repositories, and policies are modeled as
-objects and links. Repository history can be replayed, queried, explained,
-forked, compared, and verified with fsck.
+The primary user-facing layer is **Pointerverse Guard**: a command-line PR risk
+auditor for fast or AI-assisted code changes. It maps changed files into an
+audit graph, runs concrete PR risk policies, persists the graph in `.pvstore`,
+and emits PR-ready Markdown, JSON, SARIF, or text reports.
+
+The underlying audit engine still models agents, tools, files, pull requests,
+tests, secrets, repositories, and policies as typed objects and links. Repository
+history can be replayed, queried, explained, forked, compared, and verified with
+fsck.
 
 ## Build
 
@@ -53,6 +56,49 @@ cmake --build build
 ./build/pointerverse audit violations main
 ./build/pointerverse audit timeline main Agent0
 ./build/pointerverse audit export main --format json
+./build/pointerverse guard run --repo . --base origin/main --mode observe
+./build/pointerverse guard run --repo . --base origin/main --format markdown --out audit-report.md
+```
+
+## Pointerverse Guard
+
+```sh
+./build/pointerverse guard run --repo . --base main --mode observe
+```
+
+Default mode prints a text summary and writes these artifacts in the target
+repository:
+
+```txt
+.pvstore/
+audit-report.md
+audit-report.json
+audit.sarif
+```
+
+Use `--format` and `--out` to emit a single PR artifact:
+
+```sh
+./build/pointerverse guard run \
+  --repo . \
+  --base origin/main \
+  --mode observe \
+  --format markdown \
+  --out audit-report.md
+```
+
+Current PR guard policies flag source changes without matching tests, possible
+secret patterns in added lines, workflow changes, lockfile changes without
+policy approval, generated output changes, large diffs, and deleted tests.
+
+The directory-based demo works without creating a git repository:
+
+```sh
+./build/pointerverse guard run \
+  --repo examples/pr_guard/after \
+  --base ../before \
+  --out report.md \
+  --format markdown
 ```
 
 ## DSL sample

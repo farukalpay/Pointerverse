@@ -1,0 +1,28 @@
+name: Pointerverse Guard Selftest
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./
+        with:
+          base: origin/main
+          mode: observe
+          report: audit-report.md
+          format: markdown
+          sarif: audit.sarif
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pointerverse-guard
+          path: |
+            audit-report.md
+            audit.sarif

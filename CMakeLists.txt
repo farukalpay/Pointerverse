@@ -30,6 +30,11 @@ add_library(pointerverse_core
     src/domain/domain.cpp
     src/domain/package.cpp
     src/domain/schema.cpp
+    src/guard/finding.cpp
+    src/guard/git_diff_adapter.cpp
+    src/guard/guard_pipeline.cpp
+    src/guard/policy_pack.cpp
+    src/guard/report.cpp
     src/hash/canonical.cpp
     src/hash/hasher.cpp
     src/ingest/agent_audit_adapter.cpp
@@ -108,6 +113,9 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/core/core_tests.cpp
         tests/core/delta_tests.cpp
         tests/domain/agent_audit_tests.cpp
+        tests/guard/git_diff_adapter_tests.cpp
+        tests/guard/guard_pipeline_tests.cpp
+        tests/guard/policy_pack_tests.cpp
         tests/hash/canonical_hash_tests.cpp
         tests/ingest/agent_audit_ingestion_tests.cpp
         tests/ingest/evidence_tests.cpp

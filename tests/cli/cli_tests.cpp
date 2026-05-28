@@ -237,3 +237,57 @@ TEST_CASE("CLI ingest and audit commands produce reports") {
 
     std::filesystem::remove_all(repo_dir);
 }
+
+TEST_CASE("CLI guard run audits PR demo and enforces strict mode") {
+    const auto repo_dir = std::filesystem::temp_directory_path() / "pointerverse_cli_guard";
+    std::filesystem::remove_all(repo_dir);
+    std::filesystem::create_directories(repo_dir);
+
+    const auto source_root = std::filesystem::path{__FILE__}.parent_path().parent_path().parent_path();
+    const auto demo_after = source_root / "examples" / "pr_guard" / "after";
+    const auto report_path = repo_dir / "audit-report.md";
+    const auto sarif_path = repo_dir / "audit.sarif";
+    const auto strict_report_path = repo_dir / "strict.json";
+    const auto store_path = repo_dir / "pvstore";
+    const auto strict_store_path = repo_dir / "strict-pvstore";
+
+    const auto observe_command =
+        shell_quote(POINTERVERSE_CLI_PATH)
+        + " guard run --repo " + shell_quote(demo_after)
+        + " --base ../before --mode observe --format markdown"
+        + " --out " + shell_quote(report_path)
+        + " --store " + shell_quote(store_path);
+    REQUIRE(std::system(observe_command.c_str()) == 0);
+    const auto report = read_file(report_path);
+    REQUIRE(report.find("Pointerverse Guard") != std::string::npos);
+    REQUIRE(report.find("modified_source_requires_test") != std::string::npos);
+    REQUIRE(report.find("secret_pattern_in_diff_is_critical") != std::string::npos);
+
+    const auto sarif_command =
+        shell_quote(POINTERVERSE_CLI_PATH)
+        + " guard run --repo " + shell_quote(demo_after)
+        + " --base ../before --mode observe --format sarif"
+        + " --out " + shell_quote(sarif_path)
+        + " --store " + shell_quote(store_path);
+    REQUIRE(std::system(sarif_command.c_str()) == 0);
+    REQUIRE(read_file(sarif_path).find("\"version\": \"2.1.0\"") != std::string::npos);
+
+    const auto history_report = repo_dir / "history.txt";
+    const auto history_command =
+        shell_quote(POINTERVERSE_CLI_PATH)
+        + " repo --store " + shell_quote(store_path)
+        + " history guard > " + shell_quote(history_report);
+    REQUIRE(std::system(history_command.c_str()) == 0);
+    REQUIRE(read_file(history_report).find("ingest git-diff") != std::string::npos);
+
+    const auto strict_command =
+        shell_quote(POINTERVERSE_CLI_PATH)
+        + " guard run --repo " + shell_quote(demo_after)
+        + " --base ../before --mode strict --format json"
+        + " --out " + shell_quote(strict_report_path)
+        + " --store " + shell_quote(strict_store_path);
+    REQUIRE(std::system(strict_command.c_str()) != 0);
+    REQUIRE(read_file(strict_report_path).find("\"status\"") != std::string::npos);
+
+    std::filesystem::remove_all(repo_dir);
+}

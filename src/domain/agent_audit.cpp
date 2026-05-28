@@ -55,6 +55,8 @@ DomainPackage make_agent_audit_domain() {
         "writes",
         "modifies",
         "creates",
+        "deletes",
+        "renames",
         "depends_on",
         "contains",
         "exposes",

@@ -16,6 +16,7 @@
 #include "pv/audit/timeline.hpp"
 #include "pv/cli/script.hpp"
 #include "pv/core/world.hpp"
+#include "pv/guard/guard_pipeline.hpp"
 #include "pv/hash/canonical.hpp"
 #include "pv/ingest/agent_audit_adapter.hpp"
 #include "pv/ingest/ingestion_index.hpp"
@@ -351,6 +352,13 @@ int main(int argc, char** argv) {
     std::string audit_timeline_object;
     std::string audit_export_branch;
     std::string audit_export_format = "json";
+    std::string guard_repo_path = ".";
+    std::string guard_base = "origin/main";
+    std::string guard_head = "HEAD";
+    std::string guard_mode = "observe";
+    std::string guard_format = "text";
+    std::string guard_out_path;
+    std::string guard_store_path;
 
     auto* lab = app.add_subcommand("lab", "Run a Pointerverse script");
     lab->add_option("script", script_path, "Path to a .pv script")->required();
@@ -393,6 +401,17 @@ int main(int argc, char** argv) {
     audit_export->add_option("branch", audit_export_branch, "Branch name")->required();
     audit_export->add_option("--format", audit_export_format, "json")->default_val("json");
     audit_export->add_option("--store", audit_store_path, "Repository path")->default_val(".pvstore");
+
+    auto* guard = app.add_subcommand("guard", "Audit git diffs for PR risk");
+    guard->require_subcommand(1);
+    auto* guard_run = guard->add_subcommand("run", "Run Pointerverse Guard on a repository diff");
+    guard_run->add_option("--repo", guard_repo_path, "Repository or working tree path")->default_val(".");
+    guard_run->add_option("--base", guard_base, "Base git ref or baseline directory")->default_val("origin/main");
+    guard_run->add_option("--head", guard_head, "Head git ref")->default_val("HEAD");
+    guard_run->add_option("--mode", guard_mode, "observe | strict")->default_val("observe");
+    guard_run->add_option("--format", guard_format, "text | json | markdown | sarif")->default_val("text");
+    auto* guard_out_option = guard_run->add_option("--out", guard_out_path, "Report output path");
+    guard_run->add_option("--store", guard_store_path, "Pointerverse store path; defaults to <repo>/.pvstore");
 
     auto* repo = app.add_subcommand("repo", "Persistent reality repository commands");
     repo->require_subcommand(1);
@@ -569,6 +588,28 @@ int main(int argc, char** argv) {
             }
             std::cout << pv::render_audit_report_json(report);
             return EXIT_SUCCESS;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (guard_run->parsed()) {
+        try {
+            pv::GuardRunOptions options;
+            options.repo = guard_repo_path;
+            options.base = guard_base;
+            options.head = guard_head;
+            options.mode = guard_mode;
+            options.format = guard_format;
+            options.store = guard_store_path;
+            options.out = guard_out_path;
+            options.write_default_artifacts = guard_out_option->count() == 0;
+            const auto result = pv::run_guard(options);
+            if (guard_out_option->count() == 0) {
+                std::cout << pv::render_guard_report(result.report, guard_format);
+            }
+            return result.strict_failed ? EXIT_FAILURE : EXIT_SUCCESS;
         } catch (const std::exception& error) {
             std::cerr << fmt::format("error: {}\n", error.what());
             return EXIT_FAILURE;

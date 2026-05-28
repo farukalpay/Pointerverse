@@ -56,6 +56,18 @@ TEST_CASE("agent audit adapter maps supported events to normalized relations") {
     REQUIRE(normalized_test.from_type == "PullRequest");
     REQUIRE(normalized_test.relation == "tests");
     REQUIRE(normalized_test.to == "Tests");
+
+    auto created = adapter.normalize(event("3", "Agent0", "create_file", "src/new.cpp"));
+    REQUIRE(created.relation == "creates");
+    REQUIRE(created.to_type == "File");
+
+    auto deleted = adapter.normalize(event("4", "Agent0", "delete_file", "src/old.cpp"));
+    REQUIRE(deleted.relation == "deletes");
+    REQUIRE(deleted.to == "src/old.cpp");
+
+    auto renamed = adapter.normalize(event("5", "Agent0", "rename_file", "src/newer.cpp"));
+    REQUIRE(renamed.relation == "renames");
+    REQUIRE(renamed.to == "src/newer.cpp");
 }
 
 TEST_CASE("agent audit ingestion accepts observe violations and skips duplicate events") {

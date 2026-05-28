@@ -15,7 +15,7 @@ TEST_CASE("agent audit domain exposes schema and built-in rule package") {
 
     REQUIRE(package.name == "agent_audit");
     REQUIRE(package.schema.object_types.size() == 11);
-    REQUIRE(package.schema.relations.size() == 12);
+    REQUIRE(package.schema.relations.size() == 14);
     REQUIRE(package.rules.size() == 5);
 }
 

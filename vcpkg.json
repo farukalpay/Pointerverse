@@ -1,7 +1,7 @@
 {
   "name": "pointerverse",
   "version-string": "0.1.0",
-  "description": "A categorical artificial reality kernel in C++.",
+  "description": "A C++ PR guard that turns git diffs into replayable audit graphs.",
   "dependencies": [
     "cli11",
     "fmt",
