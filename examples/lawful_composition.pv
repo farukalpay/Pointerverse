@@ -1,0 +1,10 @@
+world new composition_seed
+object A : Node
+morphism Translate : Node -> Node
+morphism Collapse : Node -> Node
+compose Collapse after Translate
+compose Translate after Collapse
+law add preserve_existing_identity
+law add reject_dangling_pointer
+evolve 1
+inspect object A

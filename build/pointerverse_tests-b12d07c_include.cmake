@@ -1,5 +1,0 @@
-if(EXISTS "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests-b12d07c_tests.cmake")
-  include("/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests-b12d07c_tests.cmake")
-else()
-  add_test(pointerverse_tests_NOT_BUILT-b12d07c pointerverse_tests_NOT_BUILT-b12d07c)
-endif()

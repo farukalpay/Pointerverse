@@ -1,0 +1,12 @@
+world new seed
+object A : Node
+object B : Node
+link A -> B : causes weight=0.7
+morphism Stabilize : Node -> Node
+compose Stabilize after Stabilize
+law add reject_dangling_pointer
+law add bounded_weight
+law add preserve_relation_type
+law add no_invalid_epoch_reference
+evolve 4
+inspect graph

@@ -1,0 +1,9 @@
+world new contradiction_seed
+object Claim : Node
+object Counterclaim : Node
+link Claim -> Counterclaim : contradicts weight=0.9 role=Symbolic
+law add reject_dangling_pointer
+law add bounded_weight
+law add preserve_relation_type
+evolve 2
+inspect graph

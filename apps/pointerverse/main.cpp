@@ -4,8 +4,8 @@
 #include <CLI/CLI.hpp>
 #include <fmt/format.h>
 
-#include "pointerverse/script.hpp"
-#include "pointerverse/world.hpp"
+#include "pv/cli/script.hpp"
+#include "pv/core/world.hpp"
 
 int main(int argc, char** argv) {
     CLI::App app{"Pointerverse categorical reality lab"};
@@ -19,8 +19,8 @@ int main(int argc, char** argv) {
 
     CLI11_PARSE(app, argc, argv);
 
-    pointerverse::World world;
-    pointerverse::ScriptEngine engine{world};
+    pv::World world;
+    pv::cli::ScriptEngine engine{world};
 
     if (lab->parsed()) {
         return engine.run_file(script_path, std::cout) ? EXIT_SUCCESS : EXIT_FAILURE;

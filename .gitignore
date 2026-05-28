@@ -1,0 +1,6 @@
+build/
+.DS_Store
+*.user
+*.swp
+*.swo
+compile_commands.json
