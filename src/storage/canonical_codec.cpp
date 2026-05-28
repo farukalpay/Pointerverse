@@ -464,6 +464,85 @@ Value decode_value(CanonicalReader& reader) {
     throw std::runtime_error("invalid value kind in canonical stream");
 }
 
+void encode(CanonicalWriter& writer, const Instruction& instruction) {
+    writer.string("Instruction:v1");
+    writer.u8(static_cast<std::uint8_t>(instruction.op));
+    writer.u64(instruction.args.size());
+    for (const auto& arg : instruction.args) {
+        encode(writer, arg);
+    }
+}
+
+Instruction decode_instruction(CanonicalReader& reader) {
+    reader.expect_tag("Instruction:v1");
+    Instruction instruction;
+    instruction.op = static_cast<InstructionOp>(reader.u8());
+    const auto arg_count = checked_count(reader.u64());
+    instruction.args.reserve(static_cast<std::size_t>(arg_count));
+    for (std::uint64_t index = 0; index < arg_count; ++index) {
+        instruction.args.push_back(decode_value(reader));
+    }
+    return instruction;
+}
+
+void encode(CanonicalWriter& writer, const ProgramSymbolTable& symbols) {
+    writer.string("ProgramSymbolTable:v1");
+    writer.u64(symbols.strings.size());
+    for (const auto& symbol : symbols.strings) {
+        writer.string(symbol);
+    }
+    writer.u64(symbols.type_names.size());
+    for (const auto& symbol : symbols.type_names) {
+        writer.string(symbol);
+    }
+    writer.u64(symbols.relation_names.size());
+    for (const auto& symbol : symbols.relation_names) {
+        writer.string(symbol);
+    }
+}
+
+ProgramSymbolTable decode_program_symbol_table(CanonicalReader& reader) {
+    reader.expect_tag("ProgramSymbolTable:v1");
+    ProgramSymbolTable symbols;
+    const auto string_count = checked_count(reader.u64());
+    symbols.strings.reserve(static_cast<std::size_t>(string_count));
+    for (std::uint64_t index = 0; index < string_count; ++index) {
+        symbols.strings.push_back(reader.string());
+    }
+    const auto type_count = checked_count(reader.u64());
+    symbols.type_names.reserve(static_cast<std::size_t>(type_count));
+    for (std::uint64_t index = 0; index < type_count; ++index) {
+        symbols.type_names.push_back(reader.string());
+    }
+    const auto relation_count = checked_count(reader.u64());
+    symbols.relation_names.reserve(static_cast<std::size_t>(relation_count));
+    for (std::uint64_t index = 0; index < relation_count; ++index) {
+        symbols.relation_names.push_back(reader.string());
+    }
+    return symbols;
+}
+
+void encode(CanonicalWriter& writer, const Program& program) {
+    writer.string("Program:v1");
+    encode(writer, program.symbols);
+    writer.u64(program.instructions.size());
+    for (const auto& instruction : program.instructions) {
+        encode(writer, instruction);
+    }
+}
+
+Program decode_program(CanonicalReader& reader) {
+    reader.expect_tag("Program:v1");
+    Program program;
+    program.symbols = decode_program_symbol_table(reader);
+    const auto instruction_count = checked_count(reader.u64());
+    program.instructions.reserve(static_cast<std::size_t>(instruction_count));
+    for (std::uint64_t index = 0; index < instruction_count; ++index) {
+        program.instructions.push_back(decode_instruction(reader));
+    }
+    return program;
+}
+
 void encode(CanonicalWriter& writer, const Attribute& attribute) {
     writer.string(attribute.key);
     encode(writer, attribute.value);
@@ -747,12 +826,20 @@ WorldSnapshot decode_world_snapshot(CanonicalReader& reader) {
 }
 
 void encode(CanonicalWriter& writer, const Delta& delta) {
-    writer.string("Delta:v2");
+    writer.string("Delta:v3");
     writer.u64(delta.ops.size());
     for (const auto& op : delta.ops) {
         writer.u64(op.id.value);
         writer.u8(static_cast<std::uint8_t>(op.kind));
         switch (op.kind) {
+        case OperationKind::InternType:
+            writer.string(std::get<InternTypeOp>(op.body).name);
+            encode_type_id(writer, std::get<InternTypeOp>(op.body).id);
+            break;
+        case OperationKind::InternRelation:
+            writer.string(std::get<InternRelationOp>(op.body).name);
+            encode_relation_type(writer, std::get<InternRelationOp>(op.body).id);
+            break;
         case OperationKind::CreateObject: {
             const auto& body = std::get<CreateObjectOp>(op.body);
             writer.u32(body.temp_id.value);
@@ -832,23 +919,38 @@ void encode(CanonicalWriter& writer, const Delta& delta) {
         case OperationKind::EmitEvent:
             encode(writer, std::get<EmitEventOp>(op.body).event);
             break;
+        case OperationKind::AssertObject:
+            encode_ref(writer, std::get<AssertObjectOp>(op.body).object);
+            break;
+        case OperationKind::AssertPointer:
+            encode_pointer_id(writer, std::get<AssertPointerOp>(op.body).id);
+            break;
+        case OperationKind::AssertFact:
+            writer.hash(std::get<AssertFactOp>(op.body).id.value);
+            break;
         }
     }
 }
 
 Delta decode_delta(CanonicalReader& reader) {
     const auto tag = reader.string();
-    if (tag != "Delta:v1" && tag != "Delta:v2") {
+    if (tag != "Delta:v1" && tag != "Delta:v2" && tag != "Delta:v3") {
         throw std::runtime_error("canonical stream has unexpected type tag");
     }
     Delta delta;
-    if (tag == "Delta:v2") {
+    if (tag == "Delta:v2" || tag == "Delta:v3") {
         const auto op_count = checked_count(reader.u64());
         delta.ops.reserve(static_cast<std::size_t>(op_count));
         for (std::uint64_t index = 0; index < op_count; ++index) {
             const auto id = OperationId{reader.u64()};
             const auto kind = static_cast<OperationKind>(reader.u8());
             switch (kind) {
+            case OperationKind::InternType:
+                delta.append(make_operation(kind, InternTypeOp{reader.string(), decode_type_id(reader)}, id));
+                break;
+            case OperationKind::InternRelation:
+                delta.append(make_operation(kind, InternRelationOp{reader.string(), decode_relation_type(reader)}, id));
+                break;
             case OperationKind::CreateObject: {
                 ObjectCreate body;
                 body.temp_id = TempObjectId{reader.u32()};
@@ -905,6 +1007,15 @@ Delta decode_delta(CanonicalReader& reader) {
                 break;
             case OperationKind::EmitEvent:
                 delta.append(make_operation(kind, EmitEventOp{decode_trace_event(reader)}, id));
+                break;
+            case OperationKind::AssertObject:
+                delta.append(make_operation(kind, AssertObjectOp{decode_ref(reader)}, id));
+                break;
+            case OperationKind::AssertPointer:
+                delta.append(make_operation(kind, AssertPointerOp{decode_pointer_id(reader)}, id));
+                break;
+            case OperationKind::AssertFact:
+                delta.append(make_operation(kind, AssertFactOp{FactId{reader.hash()}}, id));
                 break;
             }
         }
@@ -1059,6 +1170,9 @@ void encode_commit_record_body(CanonicalWriter& writer, const CommitRecord& reco
     writer.hash(record.before_hash);
     writer.hash(record.after_hash);
     writer.hash(record.delta_hash);
+    writer.hash(record.program_hash);
+    writer.hash(record.instruction_root);
+    writer.hash(record.symbol_table_hash);
     writer.hash(record.trace_hash);
     writer.hash(record.law_hash);
     writer.hash(record.violation_hash);
@@ -1103,7 +1217,7 @@ CommitRecord decode_commit_record_body_v1(CanonicalReader& reader) {
     return record;
 }
 
-CommitRecord decode_commit_record_body(CanonicalReader& reader) {
+CommitRecord decode_commit_record_body_v2(CanonicalReader& reader) {
     CommitRecord record;
     record.parent = decode_optional_commit_id(reader);
     const auto parent_count = checked_count(reader.u64());
@@ -1129,6 +1243,43 @@ CommitRecord decode_commit_record_body(CanonicalReader& reader) {
     record.write_set_hash = reader.hash();
     record.proof_hash = reader.hash();
     if (reader.u8() != 0) {
+        record.proof = decode_commit_proof_v1(reader);
+    }
+    record.accepted = reader.u8() != 0;
+    record.origin = static_cast<TransactionOrigin>(reader.u8());
+    record.label = reader.string();
+    return record;
+}
+
+CommitRecord decode_commit_record_body(CanonicalReader& reader) {
+    CommitRecord record;
+    record.parent = decode_optional_commit_id(reader);
+    const auto parent_count = checked_count(reader.u64());
+    record.parents.reserve(static_cast<std::size_t>(parent_count));
+    for (std::uint64_t index = 0; index < parent_count; ++index) {
+        record.parents.push_back(decode_commit_id(reader));
+    }
+    record.world = decode_world_id(reader);
+    record.branch = decode_branch_id(reader);
+    record.branch_name = reader.string();
+    record.transaction = decode_transaction_id(reader);
+    record.before_epoch = decode_epoch(reader);
+    record.after_epoch = decode_epoch(reader);
+    record.before_hash = reader.hash();
+    record.after_hash = reader.hash();
+    record.delta_hash = reader.hash();
+    record.program_hash = reader.hash();
+    record.instruction_root = reader.hash();
+    record.symbol_table_hash = reader.hash();
+    record.trace_hash = reader.hash();
+    record.law_hash = reader.hash();
+    record.violation_hash = reader.hash();
+    record.morphism_path_hash = reader.hash();
+    record.execution_plan_hash = reader.hash();
+    record.read_set_hash = reader.hash();
+    record.write_set_hash = reader.hash();
+    record.proof_hash = reader.hash();
+    if (reader.u8() != 0) {
         record.proof = decode_commit_proof(reader);
     }
     record.accepted = reader.u8() != 0;
@@ -1138,6 +1289,7 @@ CommitRecord decode_commit_record_body(CanonicalReader& reader) {
 }
 
 void encode_commit_proof(CanonicalWriter& writer, const CommitProof& proof) {
+    writer.hash(proof.program_root);
     writer.hash(proof.before_root);
     writer.hash(proof.operation_root);
     writer.hash(proof.read_set_root);
@@ -1147,8 +1299,22 @@ void encode_commit_proof(CanonicalWriter& writer, const CommitProof& proof) {
     writer.hash(proof.after_root);
 }
 
+CommitProof decode_commit_proof_v1(CanonicalReader& reader) {
+    return CommitProof{
+        Hash256{},
+        reader.hash(),
+        reader.hash(),
+        reader.hash(),
+        reader.hash(),
+        reader.hash(),
+        reader.hash(),
+        reader.hash()
+    };
+}
+
 CommitProof decode_commit_proof(CanonicalReader& reader) {
     return CommitProof{
+        reader.hash(),
         reader.hash(),
         reader.hash(),
         reader.hash(),
@@ -1160,11 +1326,12 @@ CommitProof decode_commit_proof(CanonicalReader& reader) {
 }
 
 void encode_commit_identity(CanonicalWriter& writer, const CommitRecord& record) {
-    writer.string("StoredCommit:v2");
+    writer.string("StoredCommit:v3");
     encode_commit_record_body(writer, record);
     writer.hash(record.before_hash);
     writer.hash(record.after_hash);
     writer.hash(record.delta_hash);
+    writer.hash(record.program_hash);
     writer.hash(record.trace_hash);
     writer.hash(record.law_hash);
     writer.hash(record.violation_hash);

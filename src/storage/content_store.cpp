@@ -120,4 +120,9 @@ StoredCommit decode_canonical<StoredCommit>(std::span<const std::byte> bytes) {
     return decode_with<StoredCommit>(bytes, decode_stored_commit);
 }
 
+template <>
+Program decode_canonical<Program>(std::span<const std::byte> bytes) {
+    return decode_with<Program>(bytes, decode_program);
+}
+
 }  // namespace pv

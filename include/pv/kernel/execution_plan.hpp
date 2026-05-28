@@ -33,6 +33,11 @@ struct ExecutionPlan {
 
 [[nodiscard]] Hash256 hash_execution_plan(const ExecutionPlan& plan);
 [[nodiscard]] CommitProof make_commit_proof(const ExecutionPlan& plan);
+[[nodiscard]] ExecutionPlan make_execution_plan(
+    Transaction tx,
+    WorldSnapshot before,
+    WorldSnapshot predicted_after,
+    VerificationResult verification);
 [[nodiscard]] std::vector<FactId> unique_fact_ids(std::vector<FactId> ids);
 
 }  // namespace pv

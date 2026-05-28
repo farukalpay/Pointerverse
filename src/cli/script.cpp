@@ -12,8 +12,10 @@
 #include <vector>
 
 #include "pv/category/composition.hpp"
+#include "pv/compiler/script_compiler.hpp"
 #include "pv/domain/domain.hpp"
 #include "pv/hash/canonical.hpp"
+#include "pv/kernel/vm.hpp"
 #include "pv/observer/observer.hpp"
 #include "pv/storage/repository.hpp"
 
@@ -129,6 +131,26 @@ std::vector<std::string> morphism_path_from_events(const std::vector<TraceEvent>
     return path;
 }
 
+Transaction transaction_from_program(
+    const WorldSnapshot& snapshot,
+    Program program,
+    TransactionOrigin origin,
+    std::string label,
+    bool allow_empty = false) {
+    const auto vm = KernelVm{}.execute(snapshot, program);
+    if (!vm.ok) {
+        throw std::runtime_error(format_vm_diagnostics(vm.diagnostics));
+    }
+
+    Transaction tx;
+    tx.origin = origin;
+    tx.label = std::move(label);
+    tx.program = std::move(program);
+    tx.delta = vm.delta;
+    tx.allow_empty = allow_empty;
+    return tx;
+}
+
 EvolveResult evolve_through_sink(TransactionSink& sink, std::size_t steps) {
     EvolveResult result;
     result.requested_steps = steps;
@@ -143,11 +165,12 @@ EvolveResult evolve_through_sink(TransactionSink& sink, std::size_t steps) {
             {}
         });
 
-        Transaction tx;
-        tx.origin = TransactionOrigin::Evolution;
-        tx.label = fmt::format("evolve step {}", index + 1);
-        tx.delta = std::move(delta);
-        tx.allow_empty = true;
+        auto tx = transaction_from_program(
+            sink.world().snapshot(),
+            ScriptCompiler{}.compile_delta(sink.world().snapshot(), delta),
+            TransactionOrigin::Evolution,
+            fmt::format("evolve step {}", index + 1),
+            true);
         const auto commit = sink.commit(std::move(tx));
         result.last_law_statuses = commit.law_statuses;
         if (commit.accepted) {
@@ -342,10 +365,11 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
                 throw std::invalid_argument("usage: object NAME : TYPE");
             }
 
-            Transaction tx;
-            tx.origin = TransactionOrigin::Script;
-            tx.label = fmt::format("object {} : {}", name, type);
-            tx.delta = world.object_delta(name, type);
+            auto tx = transaction_from_program(
+                world.snapshot(),
+                ScriptCompiler{}.compile_object(world.snapshot(), name, type),
+                TransactionOrigin::Script,
+                fmt::format("object {} : {}", name, type));
             const auto result = sink_->commit(std::move(tx));
             if (!print_commit(output, result)) {
                 return false;
@@ -367,15 +391,11 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             const auto options = parse_options(stream);
             const auto role = causal_role_from_string(string_option(options, "role", string_option(options, "causal_role", "Structural")));
 
-            Transaction tx;
-            tx.origin = TransactionOrigin::Script;
-            tx.label = fmt::format("link {} -> {} : {}", from, to, relation);
-            tx.delta = world.link_delta(
-                world.object_by_name(from),
-                world.object_by_name(to),
-                relation,
-                double_option(options, "weight", 1.0),
-                role);
+            auto tx = transaction_from_program(
+                world.snapshot(),
+                ScriptCompiler{}.compile_link(world.snapshot(), from, to, relation, double_option(options, "weight", 1.0), role),
+                TransactionOrigin::Script,
+                fmt::format("link {} -> {} : {}", from, to, relation));
             const auto result = sink_->commit(std::move(tx));
             if (!print_commit(output, result)) {
                 return false;
@@ -475,15 +495,17 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             }
 
             const Selection selection{{world.object_by_name(object_name)}, {}};
-            auto delta = morphism->apply(world.snapshot(), selection);
+            const auto snapshot = world.snapshot();
+            auto delta = morphism->apply(snapshot, selection);
             const auto path = morphism_path_from_events(delta.events_view(), label_name);
 
-            Transaction tx;
-            tx.origin = TransactionOrigin::Morphism;
-            tx.label = fmt::format("apply {} to {}", label_name, object_name);
-            tx.delta = std::move(delta);
+            auto tx = transaction_from_program(
+                snapshot,
+                ScriptCompiler{}.compile_delta(snapshot, delta),
+                TransactionOrigin::Morphism,
+                fmt::format("apply {} to {}", label_name, object_name),
+                true);
             tx.morphism_path = path;
-            tx.allow_empty = true;
             const auto result = sink_->commit(std::move(tx));
             if (!print_commit(output, result)) {
                 return false;

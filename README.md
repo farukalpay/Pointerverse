@@ -1,8 +1,9 @@
 # Pointerverse
 
-Pointerverse Kernel executes typed operation batches over a content-addressed
-fact graph, producing deterministic world roots, read/write sets, law evidence,
-and commit proofs.
+Pointerverse Kernel VM executes canonical instruction streams against a
+content-addressed fact graph. Every instruction batch produces a deterministic
+execution plan, read/write set, Merkle world root, law evidence, and commit
+proof.
 
 The primary user-facing layer is **Pointerverse Guard**: a command-line PR risk
 auditor for fast or AI-assisted code changes. It maps changed files into an
@@ -13,6 +14,10 @@ The underlying audit engine still models agents, tools, files, pull requests,
 tests, secrets, repositories, and policies as typed objects and links. Repository
 history can be replayed, queried, explained, forked, compared, and verified with
 fsck.
+
+```txt
+DSL / Guard / Ingest -> Program -> Kernel VM -> Delta + ExecutionPlan + CommitProof
+```
 
 ## Build
 

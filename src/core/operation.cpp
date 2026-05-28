@@ -65,6 +65,16 @@ std::string to_string(OperationKind kind) {
         return "RemovePointerAttribute";
     case OperationKind::EmitEvent:
         return "EmitEvent";
+    case OperationKind::InternType:
+        return "InternType";
+    case OperationKind::InternRelation:
+        return "InternRelation";
+    case OperationKind::AssertObject:
+        return "AssertObject";
+    case OperationKind::AssertPointer:
+        return "AssertPointer";
+    case OperationKind::AssertFact:
+        return "AssertFact";
     }
     return "EmitEvent";
 }
@@ -123,6 +133,26 @@ void Delta::append_set_pointer_attribute(PointerId pointer, Attribute attribute)
 
 void Delta::append_remove_pointer_attribute(PointerId pointer, std::string key) {
     append(make_operation(OperationKind::RemovePointerAttribute, RemovePointerAttributeOp{pointer, std::move(key)}));
+}
+
+void Delta::append_intern_type(std::string name, TypeId id) {
+    append(make_operation(OperationKind::InternType, InternTypeOp{std::move(name), id}));
+}
+
+void Delta::append_intern_relation(std::string name, RelationType id) {
+    append(make_operation(OperationKind::InternRelation, InternRelationOp{std::move(name), id}));
+}
+
+void Delta::append_assert_object(ObjectRef object) {
+    append(make_operation(OperationKind::AssertObject, AssertObjectOp{std::move(object)}));
+}
+
+void Delta::append_assert_pointer(PointerId pointer) {
+    append(make_operation(OperationKind::AssertPointer, AssertPointerOp{pointer}));
+}
+
+void Delta::append_assert_fact(FactId fact) {
+    append(make_operation(OperationKind::AssertFact, AssertFactOp{fact}));
 }
 
 std::vector<ObjectCreate> Delta::creates_view() const {

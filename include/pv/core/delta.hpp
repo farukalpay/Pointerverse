@@ -27,6 +27,11 @@ struct Delta {
     void append_set_pointer_weight(PointerId pointer, Weight weight);
     void append_set_pointer_attribute(PointerId pointer, Attribute attribute);
     void append_remove_pointer_attribute(PointerId pointer, std::string key);
+    void append_intern_type(std::string name, TypeId id = {});
+    void append_intern_relation(std::string name, RelationType id = {});
+    void append_assert_object(ObjectRef object);
+    void append_assert_pointer(PointerId pointer);
+    void append_assert_fact(FactId fact);
 
     [[nodiscard]] std::vector<ObjectCreate> creates_view() const;
     [[nodiscard]] std::vector<ObjectUpdate> updates_view() const;
@@ -43,7 +48,8 @@ enum class OverlayError {
     PointerMissingObject,
     InvalidPointerRemove,
     ConflictingObjectUpdate,
-    InvalidPointerRelation
+    InvalidPointerRelation,
+    InvalidSymbol
 };
 
 enum class DeltaMergeError {

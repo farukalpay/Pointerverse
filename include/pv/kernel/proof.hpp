@@ -6,6 +6,7 @@
 namespace pv {
 
 struct CommitProof {
+    Hash256 program_root;
     Hash256 before_root;
     Hash256 operation_root;
     Hash256 read_set_root;

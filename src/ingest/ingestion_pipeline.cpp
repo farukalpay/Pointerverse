@@ -3,15 +3,16 @@
 
 #include <fmt/format.h>
 
-#include <map>
 #include <stdexcept>
 #include <utility>
 
+#include "pv/compiler/program_builder.hpp"
 #include "pv/domain/agent_audit.hpp"
 #include "pv/domain/domain.hpp"
 #include "pv/ingest/evidence.hpp"
 #include "pv/ingest/ingestion_index.hpp"
 #include "pv/ingest/normalizer.hpp"
+#include "pv/kernel/vm.hpp"
 #include "pv/rule/rule_engine.hpp"
 #include "pv/runtime/transaction.hpp"
 #include "pv/storage/repository.hpp"
@@ -19,55 +20,35 @@
 namespace pv {
 namespace {
 
-ObjectRef object_ref(
-    World& world,
-    Delta& delta,
-    std::map<std::string, TempObjectId>& temps,
-    std::uint32_t& next_temp,
-    const std::string& name,
-    const std::string& type) {
-    if (world.has_object(name)) {
-        return ObjectRef{world.object_by_name(name)};
-    }
-    if (const auto iter = temps.find(name); iter != temps.end()) {
-        return ObjectRef{iter->second};
-    }
-
-    const auto temp = TempObjectId{next_temp++};
-    temps.emplace(name, temp);
-    delta.append_create(ObjectCreate{temp, name, world.type_id(type), ExistenceState::Alive, {}});
-    return ObjectRef{temp};
-}
-
 Transaction transaction_for(World& world, const NormalizedAuditEvent& event) {
-    Delta delta;
-    std::map<std::string, TempObjectId> temps;
-    std::uint32_t next_temp = 1;
+    const auto snapshot = world.snapshot();
+    ProgramBuilder builder;
+    builder.import_symbols(snapshot);
 
-    const auto from = object_ref(world, delta, temps, next_temp, event.from, event.from_type);
-    const auto to = object_ref(world, delta, temps, next_temp, event.to, event.to_type);
+    const auto from = builder.ensure_object(snapshot, event.from, event.from_type);
+    const auto to = builder.ensure_object(snapshot, event.to, event.to_type);
     const auto evidence_name = "Evidence/" + event.source + "/" + event.evidence_id;
-    const auto evidence = object_ref(world, delta, temps, next_temp, evidence_name, "Evidence");
+    const auto evidence = builder.ensure_object(snapshot, evidence_name, "Evidence");
 
-    delta.append_link(PointerCreate{
+    auto relation_pointer = builder.create_pointer(
         from,
         to,
-        world.relation_type(event.relation),
+        event.relation,
+        1.0,
         CausalRole::Structural,
-        Weight{1.0},
-        "agent_audit",
-        {}
-    });
-    delta.append_link(PointerCreate{
+        "agent_audit");
+    builder.set_pointer_attribute(relation_pointer, "evidence_id", string_value(event.evidence_id));
+    builder.set_pointer_attribute(relation_pointer, "source", string_value(event.source));
+    builder.set_pointer_attribute(relation_pointer, "action", string_value(event.action));
+
+    (void)builder.create_pointer(
         evidence,
         to,
-        world.relation_type("backs"),
+        "backs",
+        1.0,
         CausalRole::Observational,
-        Weight{1.0},
-        "agent_audit",
-        {}
-    });
-    delta.append_event(TraceEvent{
+        "agent_audit");
+    builder.emit_event(TraceEvent{
         {},
         "evidence.ingest",
         {
@@ -85,10 +66,17 @@ Transaction transaction_for(World& world, const NormalizedAuditEvent& event) {
         {}
     });
 
+    auto program = builder.build();
+    const auto vm = KernelVm{}.execute(snapshot, program);
+    if (!vm.ok) {
+        throw std::runtime_error(format_vm_diagnostics(vm.diagnostics));
+    }
+
     Transaction tx;
     tx.origin = TransactionOrigin::Ingestion;
     tx.label = fmt::format("ingest {} {} {}", event.source, event.evidence_id, event.action);
-    tx.delta = std::move(delta);
+    tx.program = std::move(program);
+    tx.delta = vm.delta;
     return tx;
 }
 

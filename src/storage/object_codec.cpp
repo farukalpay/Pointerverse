@@ -11,6 +11,7 @@ StoredCommit make_stored_commit(const CommitRecord& record) {
         record.before_hash,
         record.after_hash,
         record.delta_hash,
+        record.program_hash,
         record.trace_hash,
         record.law_hash,
         record.violation_hash,
@@ -19,11 +20,12 @@ StoredCommit make_stored_commit(const CommitRecord& record) {
 }
 
 void encode(CanonicalWriter& writer, const StoredCommit& commit) {
-    writer.string("StoredCommit:v2");
+    writer.string("StoredCommit:v3");
     encode_commit_record_body(writer, commit.record);
     writer.hash(commit.before_snapshot_object);
     writer.hash(commit.after_snapshot_object);
     writer.hash(commit.delta_object);
+    writer.hash(commit.program_object);
     writer.hash(commit.trace_object);
     writer.hash(commit.law_status_object);
     writer.hash(commit.violation_object);
@@ -32,16 +34,19 @@ void encode(CanonicalWriter& writer, const StoredCommit& commit) {
 
 StoredCommit decode_stored_commit(CanonicalReader& reader) {
     const auto tag = reader.string();
-    if (tag != "StoredCommit:v1" && tag != "StoredCommit:v2") {
+    if (tag != "StoredCommit:v1" && tag != "StoredCommit:v2" && tag != "StoredCommit:v3") {
         throw std::runtime_error("canonical stream has unexpected type tag");
     }
     auto record = tag == "StoredCommit:v1"
         ? decode_commit_record_body_v1(reader)
-        : decode_commit_record_body(reader);
+        : (tag == "StoredCommit:v2" ? decode_commit_record_body_v2(reader) : decode_commit_record_body(reader));
     StoredCommit commit = make_stored_commit(record);
     commit.before_snapshot_object = reader.hash();
     commit.after_snapshot_object = reader.hash();
     commit.delta_object = reader.hash();
+    if (tag == "StoredCommit:v3") {
+        commit.program_object = reader.hash();
+    }
     commit.trace_object = reader.hash();
     commit.law_status_object = reader.hash();
     commit.violation_object = reader.hash();

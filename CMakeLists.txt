@@ -20,6 +20,8 @@ add_library(pointerverse_core
     src/audit/violation_report.cpp
     src/category/composition.cpp
     src/cli/script.cpp
+    src/compiler/program_builder.cpp
+    src/compiler/script_compiler.cpp
     src/core/id.cpp
     src/core/object.cpp
     src/core/attribute.cpp
@@ -52,8 +54,11 @@ add_library(pointerverse_core
     src/kernel/executor.cpp
     src/kernel/execution_plan.cpp
     src/kernel/fact_store.cpp
+    src/kernel/instruction.cpp
     src/kernel/merkle.cpp
+    src/kernel/program.cpp
     src/kernel/proof.cpp
+    src/kernel/vm.cpp
     src/law/invariant.cpp
     src/law/verifier.cpp
     src/observer/observer.cpp
@@ -143,7 +148,9 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/kernel/execution_plan_tests.cpp
         tests/kernel/merkle_root_tests.cpp
         tests/kernel/operation_tests.cpp
+        tests/kernel/program_codec_tests.cpp
         tests/kernel/proof_tests.cpp
+        tests/kernel/vm_tests.cpp
         tests/audit/report_tests.cpp
         tests/law/law_tests.cpp
         tests/query/query_tests.cpp

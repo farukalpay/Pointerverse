@@ -23,6 +23,34 @@ TypeId TypeRegistry::intern(std::string_view name) {
     return id;
 }
 
+TypeId TypeRegistry::intern_at(TypeId id, std::string_view name) {
+    if (name.empty()) {
+        throw std::invalid_argument("type name cannot be empty");
+    }
+    if (!id.valid()) {
+        return intern(name);
+    }
+
+    const std::string key{name};
+    if (const auto existing = find(key); existing.has_value()) {
+        if (*existing != id) {
+            throw std::invalid_argument(fmt::format("type '{}' already exists as {}", key, to_string(*existing)));
+        }
+        return *existing;
+    }
+
+    if (names_.size() < id.value) {
+        names_.resize(id.value);
+    }
+    auto& slot = names_[id.value - 1];
+    if (!slot.empty() && slot != key) {
+        throw std::invalid_argument(fmt::format("type id {} already maps to '{}'", to_string(id), slot));
+    }
+    slot = key;
+    ids_.emplace(key, id);
+    return id;
+}
+
 std::optional<TypeId> TypeRegistry::find(std::string_view name) const {
     const auto iter = ids_.find(std::string{name});
     if (iter == ids_.end()) {

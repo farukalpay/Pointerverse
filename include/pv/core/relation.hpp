@@ -32,6 +32,7 @@ enum class CausalRole : std::uint8_t {
 class RelationRegistry {
 public:
     [[nodiscard]] RelationType intern(std::string_view name);
+    [[nodiscard]] RelationType intern_at(RelationType id, std::string_view name);
     [[nodiscard]] std::optional<RelationType> find(std::string_view name) const;
     [[nodiscard]] const std::string& name(RelationType type) const;
     [[nodiscard]] std::size_t size() const noexcept;

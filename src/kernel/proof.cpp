@@ -7,7 +7,8 @@
 namespace pv {
 
 bool operator==(const CommitProof& left, const CommitProof& right) noexcept {
-    return left.before_root == right.before_root
+    return left.program_root == right.program_root
+        && left.before_root == right.before_root
         && left.operation_root == right.operation_root
         && left.read_set_root == right.read_set_root
         && left.write_set_root == right.write_set_root
@@ -18,7 +19,8 @@ bool operator==(const CommitProof& left, const CommitProof& right) noexcept {
 
 Hash256 hash_commit_proof(const CommitProof& proof) {
     CanonicalWriter writer;
-    writer.string("CommitProof:v1");
+    writer.string("CommitProof:v2");
+    writer.hash(proof.program_root);
     writer.hash(proof.before_root);
     writer.hash(proof.operation_root);
     writer.hash(proof.read_set_root);

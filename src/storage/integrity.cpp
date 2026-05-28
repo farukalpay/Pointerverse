@@ -8,7 +8,9 @@
 
 #include "pv/hash/hasher.hpp"
 #include "pv/kernel/merkle.hpp"
+#include "pv/kernel/program.hpp"
 #include "pv/kernel/proof.hpp"
+#include "pv/kernel/vm.hpp"
 #include "pv/storage/canonical_codec.hpp"
 #include "pv/storage/repository.hpp"
 
@@ -34,6 +36,19 @@ Hash256 law_output_root(const std::vector<LawStatus>& statuses, const std::vecto
     writer.u64(2);
     writer.hash(canonical_hash(statuses));
     writer.hash(canonical_hash(violations));
+    return sha256(writer.bytes());
+}
+
+Hash256 legacy_proof_hash(const CommitProof& proof) {
+    CanonicalWriter writer;
+    writer.string("CommitProof:v1");
+    writer.hash(proof.before_root);
+    writer.hash(proof.operation_root);
+    writer.hash(proof.read_set_root);
+    writer.hash(proof.write_set_root);
+    writer.hash(proof.law_input_root);
+    writer.hash(proof.law_output_root);
+    writer.hash(proof.after_root);
     return sha256(writer.bytes());
 }
 
@@ -106,6 +121,30 @@ IntegrityReport IntegrityChecker::check_repository(const Repository& repo) const
                 if (canonical_hash(delta) != record.delta_hash) {
                     add_error(report, "commit delta hash mismatch: " + to_hex(record.id.value));
                 }
+                if (!empty(record.program_hash)) {
+                    if (stored.program_object != record.program_hash) {
+                        add_error(report, "commit program object mismatch: " + to_hex(record.id.value));
+                    } else if (!repo.objects().contains(stored.program_object)) {
+                        add_error(report, "commit program object missing: " + to_hex(record.id.value));
+                    } else {
+                        const auto program = repo.objects().get_canonical<Program>(stored.program_object);
+                        if (program_hash(program) != record.program_hash) {
+                            add_error(report, "commit program hash mismatch: " + to_hex(record.id.value));
+                        }
+                        if (instruction_root(program) != record.instruction_root) {
+                            add_error(report, "commit instruction root mismatch: " + to_hex(record.id.value));
+                        }
+                        if (symbol_table_hash(program.symbols) != record.symbol_table_hash) {
+                            add_error(report, "commit symbol table hash mismatch: " + to_hex(record.id.value));
+                        }
+                        const auto vm = KernelVm{}.execute(before, program);
+                        if (!vm.ok) {
+                            add_error(report, "commit program VM replay failed: " + to_hex(record.id.value));
+                        } else if (canonical_hash(vm.delta) != record.delta_hash) {
+                            add_error(report, "commit program delta replay mismatch: " + to_hex(record.id.value));
+                        }
+                    }
+                }
                 const auto events = repo.objects().get_canonical<std::vector<TraceEvent>>(stored.trace_object);
                 if (canonical_hash(events) != record.trace_hash) {
                     add_error(report, "commit trace hash mismatch: " + to_hex(record.id.value));
@@ -120,13 +159,18 @@ IntegrityReport IntegrityChecker::check_repository(const Repository& repo) const
                 }
                 if (record.proof.has_value()) {
                     const auto proof_hash = hash_commit_proof(*record.proof);
-                    if (proof_hash != record.proof_hash) {
+                    const auto accepts_legacy_hash = empty(record.program_hash)
+                        && legacy_proof_hash(*record.proof) == record.proof_hash;
+                    if (proof_hash != record.proof_hash && !accepts_legacy_hash) {
                         add_error(report, "commit proof hash mismatch: " + to_hex(record.id.value));
                     }
                     const auto before_root = compute_world_root(before);
                     const auto after_root = compute_world_root(after);
                     if (record.proof->before_root != before_root.root) {
                         add_error(report, "commit proof before root mismatch: " + to_hex(record.id.value));
+                    }
+                    if (record.proof->program_root != record.program_hash) {
+                        add_error(report, "commit proof program root mismatch: " + to_hex(record.id.value));
                     }
                     if (record.proof->after_root != after_root.root) {
                         add_error(report, "commit proof after root mismatch: " + to_hex(record.id.value));

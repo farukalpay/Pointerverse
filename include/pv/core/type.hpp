@@ -22,6 +22,7 @@ struct TypeId {
 class TypeRegistry {
 public:
     [[nodiscard]] TypeId intern(std::string_view name);
+    [[nodiscard]] TypeId intern_at(TypeId id, std::string_view name);
     [[nodiscard]] std::optional<TypeId> find(std::string_view name) const;
     [[nodiscard]] const std::string& name(TypeId id) const;
     [[nodiscard]] std::size_t size() const noexcept;

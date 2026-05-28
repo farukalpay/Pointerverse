@@ -285,7 +285,7 @@ RepositoryStatus Repository::status() const {
 BranchId Repository::create_branch(std::string name, World initial) {
     const auto id = store_.create_branch(name, std::move(initial));
     const auto history = store_.history(id);
-    persist_record(store_.branch(id).name, history.back(), Delta{}, {});
+    persist_record(store_.branch(id).name, history.back(), Delta{}, std::nullopt, {});
     refs_.update_branch(branch_ref_from_runtime(store_.branch(id).name));
     write_history(store_.branch(id).name, history);
     return id;
@@ -307,7 +307,7 @@ std::optional<CommitRecord> Repository::commit(std::string_view branch, Transact
         return std::nullopt;
     }
 
-    persist_record(branch, *record, tx.delta, tx.morphism_path);
+    persist_record(branch, *record, tx.delta, tx.program, tx.morphism_path);
     if (record->accepted) {
         refs_.update_branch(branch_ref_from_runtime(branch));
     }
@@ -490,6 +490,7 @@ void Repository::persist_record(
     std::string_view branch,
     const CommitRecord& record,
     const Delta& delta,
+    const std::optional<Program>& program,
     const std::vector<std::string>& morphism_path) {
     const auto branch_id = require_branch(branch);
     const auto& snapshot_store = store_.snapshots();
@@ -504,6 +505,13 @@ void Repository::persist_record(
     wal_.append(WalOp::PutObject, stored.after_snapshot_object.value);
     stored.delta_object = objects_.put_canonical(delta);
     wal_.append(WalOp::PutObject, stored.delta_object.value);
+    if (program.has_value()) {
+        stored.program_object = objects_.put_canonical(*program);
+        if (stored.program_object != record.program_hash) {
+            throw std::runtime_error("stored program hash does not match commit record");
+        }
+        wal_.append(WalOp::PutObject, stored.program_object.value);
+    }
     stored.trace_object = objects_.put_canonical(record.events);
     wal_.append(WalOp::PutObject, stored.trace_object.value);
     stored.law_status_object = objects_.put_canonical(record.law_statuses);

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "pv/core/attribute.hpp"
+#include "pv/core/fact.hpp"
 #include "pv/core/object.hpp"
 #include "pv/core/pointer.hpp"
 #include "pv/trace/event.hpp"
@@ -45,7 +46,23 @@ enum class OperationKind : std::uint8_t {
     SetPointerAttribute,
     RemovePointerAttribute,
 
-    EmitEvent
+    EmitEvent,
+
+    InternType,
+    InternRelation,
+    AssertObject,
+    AssertPointer,
+    AssertFact
+};
+
+struct InternTypeOp {
+    std::string name;
+    TypeId id;
+};
+
+struct InternRelationOp {
+    std::string name;
+    RelationType id;
 };
 
 struct CreateObjectOp {
@@ -109,6 +126,18 @@ struct EmitEventOp {
     TraceEvent event;
 };
 
+struct AssertObjectOp {
+    ObjectRef object;
+};
+
+struct AssertPointerOp {
+    PointerId id;
+};
+
+struct AssertFactOp {
+    FactId id;
+};
+
 using OperationBody = std::variant<
     CreateObjectOp,
     SetObjectTypeOp,
@@ -120,7 +149,12 @@ using OperationBody = std::variant<
     SetPointerWeightOp,
     SetPointerAttributeOp,
     RemovePointerAttributeOp,
-    EmitEventOp>;
+    EmitEventOp,
+    InternTypeOp,
+    InternRelationOp,
+    AssertObjectOp,
+    AssertPointerOp,
+    AssertFactOp>;
 
 struct Operation {
     OperationId id;

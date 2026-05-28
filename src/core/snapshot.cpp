@@ -35,6 +35,42 @@ std::uint64_t next_pointer_value(const WorldSnapshot& snapshot) noexcept {
     return next;
 }
 
+std::uint32_t next_type_value(const WorldSnapshot& snapshot) noexcept {
+    std::uint32_t next = 1;
+    for (const auto& [id, _] : snapshot.type_names) {
+        next = std::max(next, id + 1);
+    }
+    return next;
+}
+
+std::uint32_t next_relation_value(const WorldSnapshot& snapshot) noexcept {
+    std::uint32_t next = 1;
+    for (const auto& [id, _] : snapshot.relation_names) {
+        next = std::max(next, id + 1);
+    }
+    return next;
+}
+
+bool has_type_name(const WorldSnapshot& snapshot, std::string_view name) {
+    return std::ranges::any_of(snapshot.type_names, [&](const auto& entry) {
+        return entry.second == name;
+    });
+}
+
+bool has_relation_name(const WorldSnapshot& snapshot, std::string_view name) {
+    return std::ranges::any_of(snapshot.relation_names, [&](const auto& entry) {
+        return entry.second == name;
+    });
+}
+
+bool has_type_id(const WorldSnapshot& snapshot, TypeId id) {
+    return id.valid() && snapshot.type_names.contains(id.value);
+}
+
+bool has_relation_id(const WorldSnapshot& snapshot, RelationType relation) {
+    return relation.valid() && snapshot.relation_names.contains(relation.id);
+}
+
 std::string ref_key(const ObjectRef& ref) {
     return std::visit(
         [](const auto& value) {
@@ -78,6 +114,13 @@ PointerSnapshot* mutable_pointer(WorldSnapshot& snapshot, PointerId id) noexcept
         }
     }
     return nullptr;
+}
+
+bool contains_fact(const WorldSnapshot& snapshot, FactId id) {
+    auto facts = snapshot.facts.empty() ? derive_facts(snapshot) : snapshot.facts;
+    return std::ranges::any_of(facts, [&](const Fact& fact) {
+        return fact.id == id;
+    });
 }
 
 bool active_at(const PointerSnapshot& pointer, Epoch epoch) noexcept {
@@ -199,6 +242,34 @@ std::expected<WorldSnapshot, OverlayError> SnapshotOverlay::apply(const Delta& d
 
     for (const auto& op : delta.ops) {
         switch (op.kind) {
+        case OperationKind::InternType: {
+            const auto& intern = std::get<InternTypeOp>(op.body);
+            if (intern.name.empty()) {
+                return std::unexpected(OverlayError::InvalidSymbol);
+            }
+            if (!has_type_name(out, intern.name)) {
+                const auto id = intern.id.valid() ? intern.id.value : next_type_value(out);
+                if (const auto iter = out.type_names.find(id); iter != out.type_names.end() && iter->second != intern.name) {
+                    return std::unexpected(OverlayError::InvalidSymbol);
+                }
+                out.type_names.emplace(id, intern.name);
+            }
+            break;
+        }
+        case OperationKind::InternRelation: {
+            const auto& intern = std::get<InternRelationOp>(op.body);
+            if (intern.name.empty()) {
+                return std::unexpected(OverlayError::InvalidSymbol);
+            }
+            if (!has_relation_name(out, intern.name)) {
+                const auto id = intern.id.valid() ? intern.id.id : next_relation_value(out);
+                if (const auto iter = out.relation_names.find(id); iter != out.relation_names.end() && iter->second != intern.name) {
+                    return std::unexpected(OverlayError::InvalidSymbol);
+                }
+                out.relation_names.emplace(id, intern.name);
+            }
+            break;
+        }
         case OperationKind::CreateObject: {
             const auto& create = std::get<CreateObjectOp>(op.body);
             if (!create.temp_id.valid()) {
@@ -210,7 +281,7 @@ std::expected<WorldSnapshot, OverlayError> SnapshotOverlay::apply(const Delta& d
             if (!names.insert(create.name).second) {
                 return std::unexpected(OverlayError::DuplicateObjectName);
             }
-            if (!create.type.valid()) {
+            if (!has_type_id(out, create.type)) {
                 return std::unexpected(OverlayError::InvalidTempObject);
             }
 
@@ -227,6 +298,9 @@ std::expected<WorldSnapshot, OverlayError> SnapshotOverlay::apply(const Delta& d
         }
         case OperationKind::SetObjectType: {
             const auto& update = std::get<SetObjectTypeOp>(op.body);
+            if (!has_type_id(out, update.type)) {
+                return std::unexpected(OverlayError::InvalidTempObject);
+            }
             const auto id = resolve_ref(out, temps, update.object);
             if (!id.has_value()) {
                 return std::unexpected(OverlayError::UpdateMissingObject);
@@ -279,7 +353,7 @@ std::expected<WorldSnapshot, OverlayError> SnapshotOverlay::apply(const Delta& d
         }
         case OperationKind::CreatePointer: {
             const auto& link = std::get<CreatePointerOp>(op.body);
-            if (!link.relation.valid()) {
+            if (!has_relation_id(out, link.relation)) {
                 return std::unexpected(OverlayError::InvalidPointerRelation);
             }
             const auto from = resolve_ref(out, temps, link.from);
@@ -339,6 +413,25 @@ std::expected<WorldSnapshot, OverlayError> SnapshotOverlay::apply(const Delta& d
         }
         case OperationKind::EmitEvent:
             break;
+        case OperationKind::AssertObject: {
+            const auto& assertion = std::get<AssertObjectOp>(op.body);
+            if (!resolve_ref(out, temps, assertion.object).has_value()) {
+                return std::unexpected(OverlayError::UpdateMissingObject);
+            }
+            break;
+        }
+        case OperationKind::AssertPointer: {
+            if (mutable_pointer(out, std::get<AssertPointerOp>(op.body).id) == nullptr) {
+                return std::unexpected(OverlayError::InvalidPointerRemove);
+            }
+            break;
+        }
+        case OperationKind::AssertFact: {
+            if (!contains_fact(out, std::get<AssertFactOp>(op.body).id)) {
+                return std::unexpected(OverlayError::InvalidSymbol);
+            }
+            break;
+        }
         }
     }
 
@@ -529,6 +622,8 @@ std::string to_string(OverlayError error) {
         return "ConflictingObjectUpdate";
     case OverlayError::InvalidPointerRelation:
         return "InvalidPointerRelation";
+    case OverlayError::InvalidSymbol:
+        return "InvalidSymbol";
     }
     return "InvalidTempObject";
 }

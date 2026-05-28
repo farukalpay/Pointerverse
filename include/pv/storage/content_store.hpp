@@ -27,6 +27,8 @@ template <>
 [[nodiscard]] std::vector<LawViolation> decode_canonical<std::vector<LawViolation>>(std::span<const std::byte> bytes);
 template <>
 [[nodiscard]] StoredCommit decode_canonical<StoredCommit>(std::span<const std::byte> bytes);
+template <>
+[[nodiscard]] Program decode_canonical<Program>(std::span<const std::byte> bytes);
 
 class ContentStore {
 public:

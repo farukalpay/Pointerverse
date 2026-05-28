@@ -17,6 +17,13 @@ std::string key(std::string_view value) {
     return std::string{value};
 }
 
+bool contains_fact(const WorldSnapshot& snapshot, FactId id) {
+    auto facts = snapshot.facts.empty() ? derive_facts(snapshot) : snapshot.facts;
+    return std::ranges::any_of(facts, [&](const Fact& fact) {
+        return fact.id == id;
+    });
+}
+
 }  // namespace
 
 Delta NoOpEvolution::step(const WorldSnapshot&, Epoch next) const {
@@ -341,6 +348,16 @@ std::vector<TraceEvent> World::apply_delta_unchecked(const Delta& delta) {
 
     for (const auto& op : delta.ops) {
         switch (op.kind) {
+        case OperationKind::InternType: {
+            const auto& intern = std::get<InternTypeOp>(op.body);
+            (void)types_.intern_at(intern.id, intern.name);
+            break;
+        }
+        case OperationKind::InternRelation: {
+            const auto& intern = std::get<InternRelationOp>(op.body);
+            (void)relations_.intern_at(intern.id, intern.name);
+            break;
+        }
         case OperationKind::CreateObject: {
             const auto& create = std::get<CreateObjectOp>(op.body);
             if (!create.temp_id.valid()) {
@@ -543,6 +560,24 @@ std::vector<TraceEvent> World::apply_delta_unchecked(const Delta& delta) {
                 event.fields.emplace("world", name_);
             }
             events.push_back(std::move(event));
+            break;
+        }
+        case OperationKind::AssertObject: {
+            (void)resolve_object(std::get<AssertObjectOp>(op.body).object);
+            break;
+        }
+        case OperationKind::AssertPointer: {
+            const auto pointer = std::get<AssertPointerOp>(op.body).id;
+            if (!pointer_index(pointer).has_value()) {
+                throw std::invalid_argument(fmt::format("unknown pointer {}", to_string(pointer)));
+            }
+            break;
+        }
+        case OperationKind::AssertFact: {
+            const auto fact = std::get<AssertFactOp>(op.body).id;
+            if (!contains_fact(snapshot(), fact)) {
+                throw std::invalid_argument(fmt::format("unknown fact {}", to_string(fact)));
+            }
             break;
         }
         }

@@ -11,6 +11,7 @@
 #include "pv/kernel/executor.hpp"
 #include "pv/kernel/fact_store.hpp"
 #include "pv/kernel/merkle.hpp"
+#include "pv/kernel/vm.hpp"
 
 namespace pv {
 namespace {
@@ -99,7 +100,7 @@ void sort_unique_pointers(std::vector<PointerId>& pointers) {
     pointers.erase(std::ranges::unique(pointers).begin(), pointers.end());
 }
 
-std::vector<ResolvedOperation> resolve_operations(
+[[maybe_unused]] std::vector<ResolvedOperation> resolve_operations(
     const Delta& delta,
     const WorldSnapshot& before,
     const WorldSnapshot& after,
@@ -132,6 +133,23 @@ std::vector<ResolvedOperation> resolve_operations(
         item.kind = op.kind;
 
         switch (op.kind) {
+        case OperationKind::InternType:
+        case OperationKind::InternRelation:
+        case OperationKind::AssertFact:
+            break;
+        case OperationKind::AssertObject: {
+            if (const auto id = resolve_before_or_after(std::get<AssertObjectOp>(op.body).object); id.has_value()) {
+                item.touched_objects.push_back(*id);
+                add_object_facts(before_facts, *id, item.reads);
+            }
+            break;
+        }
+        case OperationKind::AssertPointer: {
+            const auto pointer = std::get<AssertPointerOp>(op.body).id;
+            item.touched_pointers.push_back(pointer);
+            add_pointer_facts(before_facts, pointer, item.reads);
+            break;
+        }
         case OperationKind::CreateObject: {
             const auto& body = std::get<CreateObjectOp>(op.body);
             if (const auto id = object_named(after, body.name); id.has_value()) {
@@ -237,6 +255,19 @@ PreparedTransaction prepare_transaction(const World& world, const Transaction& t
     PreparedTransaction prepared;
     prepared.tx = tx;
     prepared.before = world.snapshot();
+
+    if (tx.program.has_value()) {
+        const auto vm = KernelVm{}.execute(prepared.before, *tx.program);
+        if (!vm.ok) {
+            prepared.rejection_reason = format_vm_diagnostics(vm.diagnostics);
+            return prepared;
+        }
+        if (canonical_hash(vm.delta) != canonical_hash(tx.delta)) {
+            prepared.rejection_reason = "transaction delta does not match VM(program).delta";
+            return prepared;
+        }
+    }
+
     prepared.predicted_after = SnapshotOverlay{prepared.before}.apply(tx.delta);
 
     if (tx.delta.empty() && !tx.allow_empty) {
@@ -269,11 +300,7 @@ PreparedTransaction prepare_transaction(const World& world, const Transaction& t
     const auto before_facts = FactStore::from_snapshot(prepared.before);
     const auto after_facts = FactStore::from_snapshot(*prepared.predicted_after);
 
-    ExecutionPlan plan;
-    plan.tx = tx;
-    plan.before = prepared.before;
-    plan.predicted_after = *prepared.predicted_after;
-    plan.resolved_ops = resolve_operations(tx.delta, prepared.before, *prepared.predicted_after, before_facts, after_facts);
+    ExecutionPlan plan = make_execution_plan(tx, prepared.before, *prepared.predicted_after, VerificationResult{});
 
     prepared.verification = verifier.check(LawCheckContext{
         prepared.before,

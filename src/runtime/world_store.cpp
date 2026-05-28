@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include "pv/kernel/program.hpp"
+
 namespace pv {
 namespace {
 
@@ -253,6 +255,11 @@ std::optional<CommitRecord> WorldStore::commit(BranchId branch_id, Transaction t
     record.before_hash = before_hash;
     record.after_hash = after_hash;
     record.delta_hash = canonical_hash(tx.delta);
+    if (tx.program.has_value()) {
+        record.program_hash = program_hash(*tx.program);
+        record.instruction_root = instruction_root(*tx.program);
+        record.symbol_table_hash = symbol_table_hash(tx.program->symbols);
+    }
     record.trace_hash = canonical_hash(result.events);
     record.law_hash = canonical_hash(result.law_statuses);
     record.violation_hash = canonical_hash(result.violations);

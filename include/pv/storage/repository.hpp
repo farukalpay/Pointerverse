@@ -67,6 +67,7 @@ private:
         std::string_view branch,
         const CommitRecord& record,
         const Delta& delta,
+        const std::optional<Program>& program,
         const std::vector<std::string>& morphism_path);
     void write_history(std::string_view branch, const std::vector<CommitRecord>& history) const;
     [[nodiscard]] std::vector<CommitId> read_history_ids(std::string_view branch) const;

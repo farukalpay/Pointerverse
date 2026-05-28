@@ -35,6 +35,34 @@ RelationType RelationRegistry::intern(std::string_view name) {
     return id;
 }
 
+RelationType RelationRegistry::intern_at(RelationType id, std::string_view name) {
+    if (name.empty()) {
+        throw std::invalid_argument("relation name cannot be empty");
+    }
+    if (!id.valid()) {
+        return intern(name);
+    }
+
+    const std::string key{name};
+    if (const auto existing = find(key); existing.has_value()) {
+        if (*existing != id) {
+            throw std::invalid_argument(fmt::format("relation '{}' already exists as {}", key, to_string(*existing)));
+        }
+        return *existing;
+    }
+
+    if (names_.size() < id.id) {
+        names_.resize(id.id);
+    }
+    auto& slot = names_[id.id - 1];
+    if (!slot.empty() && slot != key) {
+        throw std::invalid_argument(fmt::format("relation id {} already maps to '{}'", to_string(id), slot));
+    }
+    slot = key;
+    ids_.emplace(key, id);
+    return id;
+}
+
 std::optional<RelationType> RelationRegistry::find(std::string_view name) const {
     const auto iter = ids_.find(std::string{name});
     if (iter == ids_.end()) {

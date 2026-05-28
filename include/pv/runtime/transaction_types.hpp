@@ -8,6 +8,7 @@
 
 #include "pv/core/delta.hpp"
 #include "pv/hash/canonical.hpp"
+#include "pv/kernel/program.hpp"
 #include "pv/runtime/ids.hpp"
 
 namespace pv {
@@ -27,6 +28,7 @@ struct Transaction {
     TransactionId id;
     TransactionOrigin origin{TransactionOrigin::Manual};
     std::string label;
+    std::optional<Program> program;
     Delta delta;
     std::vector<std::string> morphism_path;
     std::optional<Hash256> input_snapshot_hash;

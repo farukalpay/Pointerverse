@@ -34,6 +34,9 @@ struct CommitRecord {
     Hash256 before_hash;
     Hash256 after_hash;
     Hash256 delta_hash;
+    Hash256 program_hash;
+    Hash256 instruction_root;
+    Hash256 symbol_table_hash;
     Hash256 trace_hash;
     Hash256 law_hash;
     Hash256 violation_hash;

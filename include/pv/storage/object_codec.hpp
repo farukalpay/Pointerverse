@@ -12,6 +12,7 @@ struct StoredCommit {
     Hash256 before_snapshot_object;
     Hash256 after_snapshot_object;
     Hash256 delta_object;
+    Hash256 program_object;
     Hash256 trace_object;
     Hash256 law_status_object;
     Hash256 violation_object;
