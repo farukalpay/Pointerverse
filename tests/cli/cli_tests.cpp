@@ -250,6 +250,10 @@ TEST_CASE("CLI guard run audits PR demo and enforces strict mode") {
     const auto strict_report_path = repo_dir / "strict.json";
     const auto store_path = repo_dir / "pvstore";
     const auto strict_store_path = repo_dir / "strict-pvstore";
+    const auto multi_markdown_path = repo_dir / "multi-report.md";
+    const auto multi_json_path = repo_dir / "multi-report.json";
+    const auto multi_sarif_path = repo_dir / "multi-report.sarif";
+    const auto multi_store_path = repo_dir / "multi-pvstore";
 
     const auto observe_command =
         shell_quote(POINTERVERSE_CLI_PATH)
@@ -272,6 +276,20 @@ TEST_CASE("CLI guard run audits PR demo and enforces strict mode") {
     REQUIRE(std::system(sarif_command.c_str()) == 0);
     REQUIRE(read_file(sarif_path).find("\"version\": \"2.1.0\"") != std::string::npos);
 
+    const auto multi_output_command =
+        shell_quote(POINTERVERSE_CLI_PATH)
+        + " guard run --repo " + shell_quote(demo_after)
+        + " --base ../before --mode observe"
+        + " --markdown-out " + shell_quote(multi_markdown_path)
+        + " --json-out " + shell_quote(multi_json_path)
+        + " --sarif-out " + shell_quote(multi_sarif_path)
+        + " --store " + shell_quote(multi_store_path);
+    REQUIRE(std::system(multi_output_command.c_str()) == 0);
+    REQUIRE(read_file(multi_markdown_path).find("### Artifacts") != std::string::npos);
+    REQUIRE(read_file(multi_markdown_path).find("multi-report.sarif") != std::string::npos);
+    REQUIRE(read_file(multi_json_path).find("\"artifacts\"") != std::string::npos);
+    REQUIRE(read_file(multi_sarif_path).find("\"ruleId\": \"secret_pattern_in_diff_is_critical\"") != std::string::npos);
+
     const auto history_report = repo_dir / "history.txt";
     const auto history_command =
         shell_quote(POINTERVERSE_CLI_PATH)
@@ -288,6 +306,33 @@ TEST_CASE("CLI guard run audits PR demo and enforces strict mode") {
         + " --store " + shell_quote(strict_store_path);
     REQUIRE(std::system(strict_command.c_str()) != 0);
     REQUIRE(read_file(strict_report_path).find("\"status\"") != std::string::npos);
+
+    std::filesystem::remove_all(repo_dir);
+}
+
+TEST_CASE("CLI runs Realms empire demo pack") {
+    const auto repo_dir = std::filesystem::temp_directory_path() / "pointerverse_cli_realms";
+    std::filesystem::remove_all(repo_dir);
+    std::filesystem::create_directories(repo_dir);
+
+    const auto source_root = std::filesystem::path{__FILE__}.parent_path().parent_path().parent_path();
+    const auto demo_script = source_root / "examples" / "realms" / "empire" / "run_demo.sh";
+    const auto store_path = repo_dir / "empire-store";
+    const auto report_path = repo_dir / "realms-report.txt";
+
+    const auto command =
+        "cd " + shell_quote(source_root)
+        + " && POINTERVERSE_BIN=" + shell_quote(POINTERVERSE_CLI_PATH)
+        + " POINTERVERSE_REALMS_STORE=" + shell_quote(store_path)
+        + " " + shell_quote(demo_script)
+        + " > " + shell_quote(report_path);
+
+    REQUIRE(std::system(command.c_str()) == 0);
+    const auto report = read_file(report_path);
+    REQUIRE(report.find("why QuarantineEdict quarantines Harbor") != std::string::npos);
+    REQUIRE(report.find("objects\n  RedFever") != std::string::npos);
+    REQUIRE(report.find("status: Conflict") != std::string::npos);
+    REQUIRE(report.find("status:             clean") != std::string::npos);
 
     std::filesystem::remove_all(repo_dir);
 }

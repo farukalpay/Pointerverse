@@ -146,4 +146,16 @@ if(POINTERVERSE_BUILD_TESTS)
 
     include(Catch)
     catch_discover_tests(pointerverse_tests)
+
+    if(UNIX)
+        add_test(
+            NAME pointerverse_guard_action_script_syntax
+            COMMAND bash -n ${CMAKE_CURRENT_SOURCE_DIR}/scripts/pointerverse-guard-action.sh
+        )
+        add_test(
+            NAME pointerverse_guard_action_script_smoke
+            COMMAND bash -c
+                "rm -rf '${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke' && mkdir -p '${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke' && POINTERVERSE_BIN='$<TARGET_FILE:pointerverse>' GITHUB_WORKSPACE='${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke' POINTERVERSE_GUARD_REPO='${CMAKE_CURRENT_SOURCE_DIR}/examples/pr_guard/after' POINTERVERSE_GUARD_BASE='../before' POINTERVERSE_GUARD_COMMENT='false' '${CMAKE_CURRENT_SOURCE_DIR}/scripts/pointerverse-guard-action.sh' > '${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke/out.txt' && grep -q '::error file=config/dev.env' '${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke/out.txt' && grep -q '<!-- pointerverse-guard-comment -->' '${CMAKE_CURRENT_SOURCE_DIR}/scripts/pointerverse-guard-action.sh'"
+        )
+    endif()
 endif()

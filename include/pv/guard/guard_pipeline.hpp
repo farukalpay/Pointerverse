@@ -16,6 +16,9 @@ struct GuardRunOptions {
     std::string mode{"observe"};
     std::string format{"text"};
     std::filesystem::path out;
+    std::filesystem::path markdown_out;
+    std::filesystem::path json_out;
+    std::filesystem::path sarif_out;
     std::filesystem::path store;
     std::string branch{"guard"};
     bool write_default_artifacts{true};

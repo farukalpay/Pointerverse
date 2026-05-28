@@ -101,6 +101,80 @@ The directory-based demo works without creating a git repository:
   --format markdown
 ```
 
+### One-minute PR guard
+
+Add this workflow to a repository to get a sticky PR comment, Check annotations,
+SARIF Code Scanning upload, and downloadable audit artifacts:
+
+```yaml
+name: Pointerverse Guard
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  security-events: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: farukalpay/Pointerverse@v0
+        with:
+          base: origin/main
+          mode: observe
+          upload-sarif: "true"
+```
+
+The Action downloads the latest Linux x86_64 release binary when available and
+falls back to a source build. It writes `audit-report.md`, `audit-report.json`,
+`audit.sarif`, and a replayable `.pvstore/` audit graph.
+
+### See it catch a risky PR
+
+The fixture in `examples/pr_guard` intentionally changes source without matching
+tests, adds a secret-like `.env` line, modifies a workflow, changes a lockfile,
+touches generated output, and deletes a test. Pointerverse Guard reports:
+
+```md
+## Pointerverse Guard
+
+Risk score: **100 / 100**
+Status: **critical**
+
+### Findings
+
+- **HIGH**: .github/workflows/deploy.yml changes CI or deployment workflow state
+- **CRITICAL**: possible secret introduced in config/dev.env (`config/dev.env:1`)
+- **MEDIUM**: package-lock.json changed without policy approval
+- **HIGH**: src/auth.cpp modified but no matching test file changed
+- **MEDIUM**: src/generated/client.cpp appears to be generated or vendored output
+- **HIGH**: tests/auth_test.cpp deleted from test coverage
+```
+
+On GitHub this same result appears as a PR comment and file annotations, so
+reviewers do not need to open artifacts to see the risk.
+
+## Realms demo pack
+
+`examples/realms/empire` is an engine imagination demo, not a replacement for
+Pointerverse Guard. It uses the same graph, branch, law, query, and explanation
+machinery to fork an empire into plague, rebellion, and succession histories.
+
+```sh
+examples/realms/empire/run_demo.sh
+```
+
+The demo runs `history`, `query`, `why`, `branch compare`, and `fsck` against
+the resulting `.empire` store.
+
 ## DSL sample
 
 ```txt

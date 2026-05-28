@@ -1,0 +1,15 @@
+domain load examples/realms/empire/succession_rules.pvdomain
+law add no_claim_without_bloodline
+
+object CouncilOfNine : Council
+object CoronationWrit : Edict
+object RoyalSeal : Relic
+
+link Princess_Mira -> CrownAlbion : claims weight=0.95 role=Causal
+link CouncilOfNine -> Princess_Mira : recognizes weight=0.9
+link RoyalSeal -> Princess_Mira : legitimizes weight=0.8
+link CoronationWrit -> CrownAlbion : stabilizes weight=0.7
+link HouseArchivist -> CoronationWrit : records weight=1.0
+
+evolve 2
+inspect object Princess_Mira

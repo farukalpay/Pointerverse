@@ -14,6 +14,10 @@ inputs:
     description: Markdown report path.
     required: false
     default: audit-report.md
+  json:
+    description: JSON report path.
+    required: false
+    default: audit-report.json
   format:
     description: text, json, markdown, or sarif.
     required: false
@@ -26,17 +30,60 @@ inputs:
     description: Repository workspace to audit.
     required: false
     default: .
+  comment:
+    description: Post or update a sticky PR comment with the guard report.
+    required: false
+    default: "true"
+  annotations:
+    description: Emit GitHub Check annotations for guard findings.
+    required: false
+    default: "true"
+  version:
+    description: Pointerverse release version to download, or latest. Use source to force source build.
+    required: false
+    default: latest
+  github-token:
+    description: GitHub token used for PR comments and SARIF upload.
+    required: false
+    default: ""
+  upload-sarif:
+    description: Upload the SARIF report to GitHub Code Scanning.
+    required: false
+    default: "false"
+
+outputs:
+  report:
+    description: Absolute path to the Markdown report.
+    value: ${{ steps.guard.outputs.report }}
+  json:
+    description: Absolute path to the JSON report.
+    value: ${{ steps.guard.outputs.json }}
+  sarif:
+    description: Absolute path to the SARIF report.
+    value: ${{ steps.guard.outputs.sarif }}
 
 runs:
   using: composite
   steps:
     - name: Run Pointerverse Guard
+      id: guard
       shell: bash
       run: ${{ github.action_path }}/scripts/pointerverse-guard-action.sh
       env:
         POINTERVERSE_GUARD_BASE: ${{ inputs.base }}
         POINTERVERSE_GUARD_MODE: ${{ inputs.mode }}
         POINTERVERSE_GUARD_REPORT: ${{ inputs.report }}
+        POINTERVERSE_GUARD_JSON: ${{ inputs.json }}
         POINTERVERSE_GUARD_FORMAT: ${{ inputs.format }}
         POINTERVERSE_GUARD_SARIF: ${{ inputs.sarif }}
         POINTERVERSE_GUARD_REPO: ${{ inputs.repo }}
+        POINTERVERSE_GUARD_COMMENT: ${{ inputs.comment }}
+        POINTERVERSE_GUARD_ANNOTATIONS: ${{ inputs.annotations }}
+        POINTERVERSE_GUARD_VERSION: ${{ inputs.version }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        POINTERVERSE_DEFAULT_GITHUB_TOKEN: ${{ github.token }}
+    - name: Upload Pointerverse Guard SARIF
+      if: ${{ always() && inputs.upload-sarif == 'true' && inputs.sarif != '' }}
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: ${{ steps.guard.outputs.sarif }}

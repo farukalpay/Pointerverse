@@ -142,13 +142,17 @@ Delivered:
 - Default `.pvstore`, `audit-report.md`, `audit-report.json`, and `audit.sarif`
   artifacts.
 - Composite GitHub Action wrapper and PR guard demo fixture.
+- PR-facing Action visibility: step summary, sticky PR comment, GitHub
+  annotations, SARIF upload option, and release binary download with source
+  build fallback.
 
 Primary CLI surface:
 
 ```sh
 pointerverse guard run --repo . --base origin/main --mode observe
 pointerverse guard run --repo . --base origin/main --format markdown --out audit-report.md
-pointerverse guard run --repo examples/pr_guard/after --base ../before --out report.md --format markdown
+pointerverse guard run --repo . --base origin/main --markdown-out audit-report.md --json-out audit-report.json --sarif-out audit.sarif
+pointerverse guard run --repo examples/pr_guard/after --base ../before --markdown-out audit-report.md --json-out audit-report.json --sarif-out audit.sarif
 ```
 
 ## Phase 7 - Realms Layer
@@ -156,10 +160,11 @@ pointerverse guard run --repo examples/pr_guard/after --base ../before --out rep
 Introduce symbolic pressure, recurrence, inner regions, and mythic continuity
 only as a layer above lawful graph dynamics.
 
-Status: deferred.
+Status: demo pack implemented.
 
-Do not start this phase until Pointerverse Audit has stronger query ergonomics,
-more temporal law coverage, and real workflow/agent traces.
+`examples/realms/empire` is intentionally a showcase demo, not the main product
+surface. It forks one kingdom graph into plague, rebellion, and succession
+branches, then demonstrates history, query, why, branch compare, and fsck.
 
 ## Phase 8 - Audit Hardening
 

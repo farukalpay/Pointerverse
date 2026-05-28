@@ -1,4 +1,6 @@
 build/
+.pvstore/
+.empire/
 .DS_Store
 *.user
 *.swp

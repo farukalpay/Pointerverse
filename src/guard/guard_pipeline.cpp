@@ -6,6 +6,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "pv/guard/git_diff_adapter.hpp"
@@ -87,6 +88,32 @@ void attach_commits(std::vector<GuardFinding>& findings, const std::vector<Commi
     }
 }
 
+std::string artifact_label(const std::filesystem::path& path) {
+    if (path.empty()) {
+        return {};
+    }
+    return path.lexically_normal().generic_string();
+}
+
+void add_artifact(std::vector<std::string>& artifacts, std::string label) {
+    if (label.empty()) {
+        return;
+    }
+    if (std::ranges::find(artifacts, label) == artifacts.end()) {
+        artifacts.push_back(std::move(label));
+    }
+}
+
+std::string store_artifact_label(const GuardRunOptions& options) {
+    if (options.store.empty()) {
+        return ".pvstore/";
+    }
+    if (options.store.filename() == ".pvstore") {
+        return ".pvstore/";
+    }
+    return artifact_label(options.store);
+}
+
 void validate_options(const GuardRunOptions& options) {
     if (options.mode != "observe" && options.mode != "strict") {
         throw std::invalid_argument("mode must be observe or strict");
@@ -145,12 +172,31 @@ GuardRunResult run_guard(const GuardRunOptions& options) {
 
     if (options.write_default_artifacts) {
         report.artifacts = {".pvstore/", "audit-report.md", "audit-report.json", "audit.sarif"};
+    } else {
+        add_artifact(report.artifacts, artifact_label(options.out));
+        add_artifact(report.artifacts, artifact_label(options.markdown_out));
+        add_artifact(report.artifacts, artifact_label(options.json_out));
+        add_artifact(report.artifacts, artifact_label(options.sarif_out));
+        add_artifact(report.artifacts, store_artifact_label(options));
+    }
+
+    if (options.write_default_artifacts) {
         write_text_file(repo / "audit-report.md", render_guard_report_markdown(report));
         write_text_file(repo / "audit-report.json", render_guard_report_json(report));
         write_text_file(repo / "audit.sarif", render_guard_report_sarif(report));
-    } else if (!options.out.empty()) {
-        report.artifacts = {options.out.string()};
-        write_text_file(options.out, render_guard_report(report, options.format));
+    } else {
+        if (!options.out.empty()) {
+            write_text_file(options.out, render_guard_report(report, options.format));
+        }
+        if (!options.markdown_out.empty()) {
+            write_text_file(options.markdown_out, render_guard_report_markdown(report));
+        }
+        if (!options.json_out.empty()) {
+            write_text_file(options.json_out, render_guard_report_json(report));
+        }
+        if (!options.sarif_out.empty()) {
+            write_text_file(options.sarif_out, render_guard_report_sarif(report));
+        }
     }
 
     GuardRunResult result;

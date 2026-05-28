@@ -1,0 +1,14 @@
+rule no_claim_without_bloodline
+when link Claimant -> Crown : claims
+require before link Claimant -> Crown : bloodline
+deny reason "{from} claims {to} without bloodline continuity"
+
+rule no_rebellion_without_grievance
+when link House -> Crown : rebels
+require before link House -> Crown : grievance
+deny reason "{from} rebels against {to} without recorded grievance"
+
+rule no_quarantine_without_notice
+when link Edict -> City : quarantines
+require before link Edict -> City : notice
+deny reason "{to} quarantined without public quarantine notice"

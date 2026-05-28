@@ -2,6 +2,7 @@
 #include "pv/guard/report.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 #include <stdexcept>
 
@@ -21,6 +22,21 @@ std::string display_file(const GuardFinding& finding) {
         return fmt::format("{}:{}", finding.file, *finding.line);
     }
     return finding.file;
+}
+
+std::string display_artifact(const std::string& artifact) {
+    if (artifact == ".pvstore/" || artifact == ".pvstore") {
+        return fmt::format("- `{}` replayable audit graph\n", artifact);
+    }
+    return fmt::format("- `{}`\n", artifact);
+}
+
+std::string upper_severity(FindingSeverity severity) {
+    auto value = std::string{to_string(severity)};
+    std::ranges::transform(value, value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::toupper(ch));
+    });
+    return value;
 }
 
 nlohmann::json finding_json(const GuardFinding& finding) {
@@ -111,21 +127,30 @@ std::string render_guard_report_text(const GuardReport& report) {
 
 std::string render_guard_report_markdown(const GuardReport& report) {
     std::ostringstream output;
-    output << "# Pointerverse Guard\n\n";
-    output << fmt::format("- risk score: **{} / 100**\n", report.risk_score);
-    output << fmt::format("- status: **{}**\n", report.status);
-    output << fmt::format("- changed files: **{}**\n", report.changed_files);
-    output << fmt::format("- diff: **+{} -{}**\n\n", report.additions, report.deletions);
-    output << "## Findings\n\n";
+    output << "## Pointerverse Guard\n\n";
+    output << fmt::format("Risk score: **{} / 100**\n", report.risk_score);
+    output << fmt::format("Status: **{}**\n", report.status);
+    output << fmt::format("Changed files: **{}**\n", report.changed_files);
+    output << fmt::format("Diff: **+{} -{}**\n\n", report.additions, report.deletions);
+    output << "### Findings\n\n";
     if (report.findings.empty()) {
         output << "No findings.\n";
     } else {
         for (const auto& finding : report.findings) {
-            output << fmt::format("- **{}** `{}`: {}", to_string(finding.severity), finding.rule, finding.message);
+            output << fmt::format("- **{}**: {}", upper_severity(finding.severity), finding.message);
             if (const auto file = display_file(finding); !file.empty()) {
                 output << fmt::format(" (`{}`)", file);
             }
+            if (!finding.rule.empty()) {
+                output << fmt::format(" [`{}`]", finding.rule);
+            }
             output << '\n';
+        }
+    }
+    if (!report.artifacts.empty()) {
+        output << "\n### Artifacts\n\n";
+        for (const auto& artifact : report.artifacts) {
+            output << display_artifact(artifact);
         }
     }
     return output.str();

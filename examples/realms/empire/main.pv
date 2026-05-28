@@ -1,0 +1,31 @@
+object CrownAlbion : Crown
+object King_Aurelian : Claimant
+object Princess_Mira : Claimant
+object Lord_Veyr : Claimant
+object HouseNorth : House
+object HouseHarbor : House
+object HouseArchivist : House
+object Capital : City
+object Harbor : City
+object NorthMarch : Province
+object Granary : Resource
+object TreatyOfAsh : Edict
+
+link King_Aurelian -> CrownAlbion : bloodline weight=1.0 role=Causal
+link Princess_Mira -> CrownAlbion : bloodline weight=0.92 role=Causal
+link Lord_Veyr -> CrownAlbion : bloodline weight=0.35 role=Causal
+link King_Aurelian -> CrownAlbion : rules weight=1.0
+link CrownAlbion -> Capital : governs weight=1.0
+link CrownAlbion -> Harbor : protects weight=0.8
+link CrownAlbion -> NorthMarch : taxes weight=0.6
+link HouseNorth -> CrownAlbion : oath weight=0.8
+link HouseHarbor -> CrownAlbion : oath weight=0.7
+link HouseArchivist -> TreatyOfAsh : records weight=1.0
+link Harbor -> Granary : supplies weight=0.9
+link NorthMarch -> Granary : supplies weight=0.6
+link TreatyOfAsh -> CrownAlbion : legitimizes weight=0.7
+
+morphism Chronicle : Crown -> Crown
+apply Chronicle CrownAlbion
+evolve 2
+inspect graph

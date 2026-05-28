@@ -358,6 +358,9 @@ int main(int argc, char** argv) {
     std::string guard_mode = "observe";
     std::string guard_format = "text";
     std::string guard_out_path;
+    std::string guard_markdown_out_path;
+    std::string guard_json_out_path;
+    std::string guard_sarif_out_path;
     std::string guard_store_path;
 
     auto* lab = app.add_subcommand("lab", "Run a Pointerverse script");
@@ -411,6 +414,9 @@ int main(int argc, char** argv) {
     guard_run->add_option("--mode", guard_mode, "observe | strict")->default_val("observe");
     guard_run->add_option("--format", guard_format, "text | json | markdown | sarif")->default_val("text");
     auto* guard_out_option = guard_run->add_option("--out", guard_out_path, "Report output path");
+    auto* guard_markdown_out_option = guard_run->add_option("--markdown-out", guard_markdown_out_path, "Markdown report output path");
+    auto* guard_json_out_option = guard_run->add_option("--json-out", guard_json_out_path, "JSON report output path");
+    auto* guard_sarif_out_option = guard_run->add_option("--sarif-out", guard_sarif_out_path, "SARIF report output path");
     guard_run->add_option("--store", guard_store_path, "Pointerverse store path; defaults to <repo>/.pvstore");
 
     auto* repo = app.add_subcommand("repo", "Persistent reality repository commands");
@@ -604,9 +610,17 @@ int main(int argc, char** argv) {
             options.format = guard_format;
             options.store = guard_store_path;
             options.out = guard_out_path;
-            options.write_default_artifacts = guard_out_option->count() == 0;
+            options.markdown_out = guard_markdown_out_path;
+            options.json_out = guard_json_out_path;
+            options.sarif_out = guard_sarif_out_path;
+            const auto explicit_outputs =
+                guard_out_option->count() > 0
+                || guard_markdown_out_option->count() > 0
+                || guard_json_out_option->count() > 0
+                || guard_sarif_out_option->count() > 0;
+            options.write_default_artifacts = !explicit_outputs;
             const auto result = pv::run_guard(options);
-            if (guard_out_option->count() == 0) {
+            if (!explicit_outputs) {
                 std::cout << pv::render_guard_report(result.report, guard_format);
             }
             return result.strict_failed ? EXIT_FAILURE : EXIT_SUCCESS;

@@ -1,15 +1,23 @@
-# Pointerverse Guard
+## Pointerverse Guard
 
-- risk score: **100 / 100**
-- status: **critical**
-- changed files: **6**
+Risk score: **100 / 100**
+Status: **critical**
+Changed files: **6**
+Diff: **+24 -7**
 
-## Findings
+### Findings
 
-- **high** `modified_source_requires_test`: src/auth.cpp modified but no matching test file changed
-- **critical** `secret_pattern_in_diff_is_critical`: possible secret introduced in config/dev.env
-- **high** `workflow_change_is_high_risk`: .github/workflows/deploy.yml changes CI or deployment workflow state
-- **medium** `lockfile_change_requires_policy`: package-lock.json changed without policy approval
-- **medium** `generated_file_change_is_medium_risk`: src/generated/client.cpp appears to be generated or vendored output
-- **high** `deleted_test_is_high_risk`: tests/auth_test.cpp deleted from test coverage
-- **info** `changed_files_mapped_into_audit_graph`: 6 changed files mapped into audit graph
+- **HIGH**: .github/workflows/deploy.yml changes CI or deployment workflow state (`.github/workflows/deploy.yml`) [`workflow_change_is_high_risk`]
+- **CRITICAL**: possible secret introduced in config/dev.env (`config/dev.env:1`) [`secret_pattern_in_diff_is_critical`]
+- **MEDIUM**: package-lock.json changed without policy approval (`package-lock.json`) [`lockfile_change_requires_policy`]
+- **HIGH**: src/auth.cpp modified but no matching test file changed (`src/auth.cpp`) [`modified_source_requires_test`]
+- **MEDIUM**: src/generated/client.cpp appears to be generated or vendored output (`src/generated/client.cpp`) [`generated_file_change_is_medium_risk`]
+- **HIGH**: tests/auth_test.cpp deleted from test coverage (`tests/auth_test.cpp`) [`deleted_test_is_high_risk`]
+- **INFO**: 6 changed files mapped into audit graph [`changed_files_mapped_into_audit_graph`]
+
+### Artifacts
+
+- `audit-report.md`
+- `audit-report.json`
+- `audit.sarif`
+- `.pvstore/` replayable audit graph

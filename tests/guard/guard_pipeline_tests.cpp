@@ -70,7 +70,10 @@ TEST_CASE("guard pipeline ingests diff, persists graph, and renders reports") {
     REQUIRE((result.report.status == "risky" || result.report.status == "critical"));
     REQUIRE(result.ingestion.accepted == result.report.changed_files);
     REQUIRE(std::filesystem::exists(root / "audit-report.md"));
-    REQUIRE(read_file(root / "audit-report.md").find("Pointerverse Guard") != std::string::npos);
+    const auto markdown = read_file(root / "audit-report.md");
+    REQUIRE(markdown.find("## Pointerverse Guard") != std::string::npos);
+    REQUIRE(markdown.find("### Artifacts") != std::string::npos);
+    REQUIRE(markdown.find("secret_pattern_in_diff_is_critical") != std::string::npos);
 
     const auto repository = Repository::open(root / "pvstore");
     REQUIRE(repository.has_branch("guard"));
@@ -82,6 +85,17 @@ TEST_CASE("guard pipeline ingests diff, persists graph, and renders reports") {
     const auto sarif = nlohmann::json::parse(render_guard_report_sarif(result.report));
     REQUIRE(sarif["version"] == "2.1.0");
     REQUIRE(sarif["runs"][0]["results"].size() >= 4);
+    bool secret_location_has_line = false;
+    for (const auto& item : sarif["runs"][0]["results"]) {
+        if (item["ruleId"] != "secret_pattern_in_diff_is_critical") {
+            continue;
+        }
+        const auto& location = item["locations"][0]["physicalLocation"];
+        secret_location_has_line =
+            location["artifactLocation"]["uri"] == "config/dev.env"
+            && location["region"]["startLine"] == 1;
+    }
+    REQUIRE(secret_location_has_line);
 
     REQUIRE(guard_strict_failed(result.report));
 

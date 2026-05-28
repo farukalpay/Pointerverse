@@ -4,6 +4,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  security-events: write
+
 jobs:
   audit:
     runs-on: ubuntu-latest
@@ -17,12 +23,21 @@ jobs:
           base: origin/main
           mode: observe
           report: audit-report.md
+          json: audit-report.json
           format: markdown
           sarif: audit.sarif
+          version: source
+
+      - uses: github/codeql-action/upload-sarif@v4
+        if: ${{ always() && hashFiles('audit.sarif') != '' }}
+        with:
+          sarif_file: audit.sarif
 
       - uses: actions/upload-artifact@v4
         with:
           name: pointerverse-guard
           path: |
             audit-report.md
+            audit-report.json
             audit.sarif
+            .pvstore
