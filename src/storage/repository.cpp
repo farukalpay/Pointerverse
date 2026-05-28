@@ -13,6 +13,7 @@
 #include <nlohmann/json.hpp>
 
 #include "pv/hash/hasher.hpp"
+#include "pv/sentinel/boot_gate.hpp"
 
 namespace pv {
 namespace {
@@ -272,6 +273,17 @@ Repository Repository::open(std::filesystem::path root) {
     (void)repo.wal_.recover();
     repo.load();
     return repo;
+}
+
+Repository Repository::open_with_sentinel(std::filesystem::path root, BootGateResult* result) {
+    auto boot = run_boot_gate(root);
+    if (result != nullptr) {
+        *result = boot;
+    }
+    if (!boot.ok) {
+        throw std::runtime_error("sentinel boot failed at " + to_string(boot.failed_at));
+    }
+    return Repository::open(std::move(root));
 }
 
 const std::filesystem::path& Repository::root() const noexcept {

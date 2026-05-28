@@ -19,6 +19,8 @@
 
 namespace pv {
 
+struct BootGateResult;
+
 struct RepositoryStatus {
     std::filesystem::path root;
     std::string current_branch;
@@ -29,6 +31,7 @@ class Repository {
 public:
     static Repository init(std::filesystem::path root);
     static Repository open(std::filesystem::path root);
+    static Repository open_with_sentinel(std::filesystem::path root, BootGateResult* result = nullptr);
 
     [[nodiscard]] const std::filesystem::path& root() const noexcept;
     [[nodiscard]] RepositoryStatus status() const;

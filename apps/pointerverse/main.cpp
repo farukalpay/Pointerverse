@@ -1,11 +1,13 @@
 #include <cstdlib>
 #include <cstdint>
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <CLI/CLI.hpp>
@@ -26,6 +28,9 @@
 #include "pv/query/query.hpp"
 #include "pv/runtime/replayer.hpp"
 #include "pv/runtime/world_store.hpp"
+#include "pv/sentinel/boot_gate.hpp"
+#include "pv/sentinel/fault_injection.hpp"
+#include "pv/sentinel/sentinel.hpp"
 #include "pv/storage/integrity.hpp"
 #include "pv/storage/repository.hpp"
 #include "pv/trace/replayer.hpp"
@@ -160,6 +165,29 @@ void print_integrity_report(const pv::IntegrityReport& report) {
     for (const auto& warning : report.warnings) {
         std::cout << fmt::format("warning: {}\n", warning.message);
     }
+}
+
+std::chrono::seconds parse_interval(std::string_view value) {
+    if (value.empty()) {
+        throw std::invalid_argument("interval cannot be empty");
+    }
+    std::string text{value};
+    if (text.ends_with('s')) {
+        text.pop_back();
+    }
+    const auto seconds = std::stoull(text);
+    if (seconds == 0) {
+        throw std::invalid_argument("interval must be greater than zero seconds");
+    }
+    return std::chrono::seconds{seconds};
+}
+
+void print_fault_result(const pv::FaultInjectionResult& result) {
+    std::cout << "Pointerverse Sentinel Fault\n";
+    std::cout << "---------------------------\n";
+    std::cout << fmt::format("mutated: {}\n", result.mutated ? "yes" : "no");
+    std::cout << fmt::format("target:  {}\n", result.target);
+    std::cout << fmt::format("status:  {}\n", result.message);
 }
 
 pv::VerificationMode parse_ingestion_mode(std::string_view mode) {
@@ -362,6 +390,12 @@ int main(int argc, char** argv) {
     std::string guard_json_out_path;
     std::string guard_sarif_out_path;
     std::string guard_store_path;
+    std::string sentinel_store_path = ".pvstore";
+    std::string sentinel_patrol_every;
+    std::string sentinel_fault_kind = "snapshot";
+    std::string sentinel_fault_commit = "HEAD";
+    std::string sentinel_fault_branch;
+    bool sentinel_fault_confirm = false;
 
     auto* lab = app.add_subcommand("lab", "Run a Pointerverse script");
     lab->add_option("script", script_path, "Path to a .pv script")->required();
@@ -418,6 +452,39 @@ int main(int argc, char** argv) {
     auto* guard_json_out_option = guard_run->add_option("--json-out", guard_json_out_path, "JSON report output path");
     auto* guard_sarif_out_option = guard_run->add_option("--sarif-out", guard_sarif_out_path, "SARIF report output path");
     guard_run->add_option("--store", guard_store_path, "Pointerverse store path; defaults to <repo>/.pvstore");
+
+    auto* sentinel = app.add_subcommand("sentinel", "Kernel self-verification runtime");
+    sentinel->require_subcommand(1);
+    auto* sentinel_boot = sentinel->add_subcommand("boot", "Run staged sentinel boot verification");
+    sentinel_boot->add_option("store", sentinel_store_path, "Repository path")->default_val(".pvstore");
+    auto* sentinel_patrol = sentinel->add_subcommand("patrol", "Run sentinel patrol workers");
+    sentinel_patrol->add_option("store", sentinel_store_path, "Repository path")->default_val(".pvstore");
+    auto* sentinel_once_option = sentinel_patrol->add_flag("--once", "Run exactly one patrol pass");
+    auto* sentinel_every_option = sentinel_patrol->add_option("--every", sentinel_patrol_every, "Run patrol repeatedly at an interval such as 5s");
+    auto* sentinel_report = sentinel->add_subcommand("report", "Show the latest sentinel report");
+    sentinel_report->add_option("store", sentinel_store_path, "Repository path")->default_val(".pvstore");
+    auto* sentinel_fault = sentinel->add_subcommand("fault", "Controlled sentinel fault injection");
+    sentinel_fault->require_subcommand(1);
+    auto* sentinel_fault_corrupt = sentinel_fault->add_subcommand("corrupt-object", "Corrupt one object blob by kind");
+    sentinel_fault_corrupt->add_option("store", sentinel_store_path, "Repository path")->default_val(".pvstore");
+    sentinel_fault_corrupt->add_option("--kind", sentinel_fault_kind, "snapshot | commit | program | delta | trace | law | proof")->default_val("snapshot");
+    sentinel_fault_corrupt->add_option("--commit", sentinel_fault_commit, "Commit hash, prefix, or HEAD")->default_val("HEAD");
+    sentinel_fault_corrupt->add_option("--branch", sentinel_fault_branch, "Branch for HEAD/prefix resolution");
+    sentinel_fault_corrupt->add_flag("--yes-i-know-this-mutates-store", sentinel_fault_confirm, "Confirm destructive fault injection");
+    auto* sentinel_fault_flip = sentinel_fault->add_subcommand("flip-proof", "Rewrite the branch head with invalid proof roots");
+    sentinel_fault_flip->add_option("store", sentinel_store_path, "Repository path")->default_val(".pvstore");
+    sentinel_fault_flip->add_option("--commit", sentinel_fault_commit, "Commit hash, prefix, or HEAD")->default_val("HEAD");
+    sentinel_fault_flip->add_option("--branch", sentinel_fault_branch, "Branch for HEAD/prefix resolution");
+    sentinel_fault_flip->add_flag("--yes-i-know-this-mutates-store", sentinel_fault_confirm, "Confirm destructive fault injection");
+    auto* sentinel_fault_remove_program = sentinel_fault->add_subcommand("remove-program", "Remove a program object");
+    sentinel_fault_remove_program->add_option("store", sentinel_store_path, "Repository path")->default_val(".pvstore");
+    sentinel_fault_remove_program->add_option("--commit", sentinel_fault_commit, "Commit hash, prefix, or HEAD")->default_val("HEAD");
+    sentinel_fault_remove_program->add_option("--branch", sentinel_fault_branch, "Branch for HEAD/prefix resolution");
+    sentinel_fault_remove_program->add_flag("--yes-i-know-this-mutates-store", sentinel_fault_confirm, "Confirm destructive fault injection");
+    auto* sentinel_fault_rewrite_ref = sentinel_fault->add_subcommand("rewrite-ref", "Rewrite a branch ref to missing objects");
+    sentinel_fault_rewrite_ref->add_option("store", sentinel_store_path, "Repository path")->default_val(".pvstore");
+    sentinel_fault_rewrite_ref->add_option("--branch", sentinel_fault_branch, "Branch to rewrite")->default_val("main");
+    sentinel_fault_rewrite_ref->add_flag("--yes-i-know-this-mutates-store", sentinel_fault_confirm, "Confirm destructive fault injection");
 
     auto* repo = app.add_subcommand("repo", "Persistent reality repository commands");
     repo->require_subcommand(1);
@@ -624,6 +691,86 @@ int main(int argc, char** argv) {
                 std::cout << pv::render_guard_report(result.report, guard_format);
             }
             return result.strict_failed ? EXIT_FAILURE : EXIT_SUCCESS;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (sentinel_boot->parsed()) {
+        try {
+            const auto result = pv::run_boot_gate(sentinel_store_path);
+            std::cout << pv::render_boot_gate_result(result);
+            return result.ok ? EXIT_SUCCESS : EXIT_FAILURE;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (sentinel_patrol->parsed()) {
+        try {
+            pv::SentinelRuntime runtime{sentinel_store_path};
+            if (sentinel_every_option->count() > 0) {
+                const auto interval = parse_interval(sentinel_patrol_every);
+                while (true) {
+                    const auto result = runtime.tick();
+                    std::cout << pv::render_sentinel_report(result);
+                    std::cout.flush();
+                    std::this_thread::sleep_for(interval);
+                }
+            }
+            if (sentinel_once_option->count() == 0 && sentinel_every_option->count() == 0) {
+                throw std::invalid_argument("usage: sentinel patrol STORE --once or --every 5s");
+            }
+            const auto result = runtime.tick();
+            std::cout << pv::render_sentinel_report(result);
+            return result.clean() ? EXIT_SUCCESS : EXIT_FAILURE;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (sentinel_report->parsed()) {
+        try {
+            pv::BootGateResult boot;
+            (void)pv::Repository::open_with_sentinel(sentinel_store_path, &boot);
+            pv::SentinelRuntime runtime{sentinel_store_path};
+            auto report = runtime.tick();
+            report.measurement = boot.measurement.root;
+            std::cout << pv::render_sentinel_report(report);
+            return report.clean() ? EXIT_SUCCESS : EXIT_FAILURE;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (sentinel_fault_corrupt->parsed()
+        || sentinel_fault_flip->parsed()
+        || sentinel_fault_remove_program->parsed()
+        || sentinel_fault_rewrite_ref->parsed()) {
+        try {
+            pv::FaultInjectionOptions options;
+            options.root = sentinel_store_path;
+            options.branch = sentinel_fault_branch;
+            options.commit = sentinel_fault_commit;
+            options.kind = pv::parse_fault_object_kind(sentinel_fault_kind);
+            options.confirm_mutates_store = sentinel_fault_confirm;
+
+            pv::FaultInjectionResult result;
+            if (sentinel_fault_corrupt->parsed()) {
+                result = pv::corrupt_object_fault(options);
+            } else if (sentinel_fault_flip->parsed()) {
+                result = pv::flip_proof_fault(options);
+            } else if (sentinel_fault_remove_program->parsed()) {
+                result = pv::remove_program_fault(options);
+            } else {
+                result = pv::rewrite_ref_fault(options);
+            }
+            print_fault_result(result);
+            return EXIT_SUCCESS;
         } catch (const std::exception& error) {
             std::cerr << fmt::format("error: {}\n", error.what());
             return EXIT_FAILURE;

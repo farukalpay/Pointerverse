@@ -1,22 +1,17 @@
 # Pointerverse
 
-Pointerverse Kernel VM executes canonical instruction streams against a
-content-addressed fact graph. Every instruction batch produces a deterministic
-execution plan, read/write set, Merkle world root, law evidence, and commit
-proof.
+Pointerverse is a deterministic state kernel for content-addressed graph
+worlds. It executes canonical instruction streams, applies typed deltas through
+law checks, records commit proofs, and keeps enough structure to replay, query,
+fork, compare, and verify repository history.
 
-The primary user-facing layer is **Pointerverse Guard**: a command-line PR risk
-auditor for fast or AI-assisted code changes. It maps changed files into an
-audit graph, runs concrete PR risk policies, persists the graph in `.pvstore`,
-and emits PR-ready Markdown, JSON, SARIF, or text reports.
-
-The underlying audit engine still models agents, tools, files, pull requests,
-tests, secrets, repositories, and policies as typed objects and links. Repository
-history can be replayed, queried, explained, forked, compared, and verified with
-fsck.
+The same kernel can back several surfaces: a local graph lab, repository-backed
+scripts, evidence ingestion, code review Guard reports, Realms demos, and now a
+Sentinel runtime that continuously measures the store, proof chain, branch DAG,
+and VM replay output.
 
 ```txt
-DSL / Guard / Ingest -> Program -> Kernel VM -> Delta + ExecutionPlan + CommitProof
+DSL / Ingest / Guard / Apps -> Program -> Kernel VM -> Delta -> Proof -> Commit -> Sentinel
 ```
 
 ## Build
@@ -57,6 +52,9 @@ cmake --build build
 ./build/pointerverse repo explain main object Agent0
 ./build/pointerverse repo why main Agent0 modifies FileA
 ./build/pointerverse repo fsck
+./build/pointerverse sentinel boot .pvstore
+./build/pointerverse sentinel patrol .pvstore --once
+./build/pointerverse sentinel report .pvstore
 ./build/pointerverse ingest agent-log events.jsonl --domain agent_audit --branch main --mode observe
 ./build/pointerverse audit report main --format text
 ./build/pointerverse audit violations main
@@ -65,9 +63,51 @@ cmake --build build
 ./build/pointerverse guard run --repo . --base origin/main --mode observe
 ./build/pointerverse guard run --repo . --base origin/main --format markdown --out audit-report.md
 examples/kernel_stress/run_demo.sh
+examples/sentinel_fault_demo/run_demo.sh
 ```
 
-## Pointerverse Guard
+## Kernel Sentinel
+
+Sentinel is the M9 self-verification runtime. It does not inspect the host OS or
+try to police external processes. It measures Pointerverse’s own repository:
+object blobs, branch refs, commit proofs, program objects, VM replay output, and
+worker heartbeats.
+
+```sh
+./build/pointerverse sentinel boot .pvstore
+./build/pointerverse sentinel patrol .pvstore --once
+./build/pointerverse sentinel report .pvstore
+```
+
+The report is designed to make repository decay explicit:
+
+```txt
+Pointerverse Sentinel
+---------------------
+boot:              clean
+regions checked:   31
+objects checked:   42
+commits checked:   8
+program replays:   3
+proof mismatches:  0
+store corruptions: 0
+worker heartbeats: clean
+```
+
+Controlled fault injection is available for demos and tests:
+
+```sh
+./build/pointerverse sentinel fault flip-proof .pvstore \
+  --branch main \
+  --commit HEAD \
+  --yes-i-know-this-mutates-store
+```
+
+Then `sentinel boot` or `sentinel patrol` reports where the proof chain broke.
+`examples/sentinel_fault_demo/run_demo.sh` runs the clean boot, injects a proof
+fault, and verifies that Sentinel catches it.
+
+## Guard Application
 
 ```sh
 ./build/pointerverse guard run --repo . --base main --mode observe
@@ -94,9 +134,10 @@ Use `--format` and `--out` to emit a single PR artifact:
   --out audit-report.md
 ```
 
-Current PR guard policies flag source changes without matching tests, possible
-secret patterns in added lines, workflow changes, lockfile changes without
-policy approval, generated output changes, large diffs, and deleted tests.
+Guard maps code diffs into the same typed graph and emits review artifacts.
+Current policies flag source changes without matching tests, possible secret
+patterns in added lines, workflow changes, lockfile changes without policy
+approval, generated output changes, large diffs, and deleted tests.
 
 The directory-based demo works without creating a git repository:
 
@@ -171,9 +212,9 @@ reviewers do not need to open artifacts to see the risk.
 
 ## Realms demo pack
 
-`examples/realms/empire` is an engine imagination demo, not a replacement for
-Pointerverse Guard. It uses the same graph, branch, law, query, and explanation
-machinery to fork an empire into plague, rebellion, and succession histories.
+`examples/realms/empire` is a showcase layer above the kernel. It uses the same
+graph, branch, law, query, and explanation machinery to fork an empire into
+plague, rebellion, and succession histories.
 
 ```sh
 examples/realms/empire/run_demo.sh

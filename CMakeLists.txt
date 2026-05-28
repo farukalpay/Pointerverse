@@ -77,6 +77,13 @@ add_library(pointerverse_core
     src/runtime/snapshot_store.cpp
     src/runtime/transaction.cpp
     src/runtime/world_store.cpp
+    src/sentinel/boot_gate.cpp
+    src/sentinel/fault_injection.cpp
+    src/sentinel/heartbeat.cpp
+    src/sentinel/patrol.cpp
+    src/sentinel/region_table.cpp
+    src/sentinel/report.cpp
+    src/sentinel/sentinel.cpp
     src/storage/canonical_codec.cpp
     src/storage/content_store.cpp
     src/storage/integrity.cpp
@@ -157,6 +164,11 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/rule/rule_engine_tests.cpp
         tests/runtime/branch_tests.cpp
         tests/runtime/transaction_tests.cpp
+        tests/sentinel/boot_gate_tests.cpp
+        tests/sentinel/fault_injection_tests.cpp
+        tests/sentinel/heartbeat_tests.cpp
+        tests/sentinel/patrol_tests.cpp
+        tests/sentinel/region_table_tests.cpp
         tests/storage/codec_tests.cpp
         tests/storage/content_store_tests.cpp
         tests/storage/integrity_tests.cpp

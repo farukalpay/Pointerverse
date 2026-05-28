@@ -169,6 +169,44 @@ TEST_CASE("CLI repo commands persist replayed trace and verify fsck") {
     std::filesystem::remove_all(repo_dir);
 }
 
+TEST_CASE("CLI sentinel commands boot patrol report and fault demo") {
+    const auto repo_dir = std::filesystem::temp_directory_path() / "pointerverse_cli_sentinel";
+    std::filesystem::remove_all(repo_dir);
+    std::filesystem::create_directories(repo_dir);
+
+    const auto source_root = std::filesystem::path{__FILE__}.parent_path().parent_path().parent_path();
+    const auto script = source_root / "examples" / "minimal_reality.pv";
+    const auto demo = source_root / "examples" / "sentinel_fault_demo" / "run_demo.sh";
+    const auto report_path = repo_dir / "sentinel_report.txt";
+    const auto demo_report_path = repo_dir / "sentinel_demo_report.txt";
+
+    const auto command =
+        "cd " + shell_quote(repo_dir)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo init .pvstore > " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo run " + shell_quote(script) + " --branch main >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " sentinel boot .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " sentinel patrol .pvstore --once >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " sentinel report .pvstore >> " + shell_quote(report_path);
+
+    REQUIRE(std::system(command.c_str()) == 0);
+    const auto report = read_file(report_path);
+    REQUIRE(report.find("Pointerverse Sentinel Boot") != std::string::npos);
+    REQUIRE(report.find("boot:              clean") != std::string::npos);
+    REQUIRE(report.find("worker heartbeats: clean") != std::string::npos);
+
+    const auto demo_command =
+        "POINTERVERSE_BIN=" + shell_quote(POINTERVERSE_CLI_PATH)
+        + " " + shell_quote(demo)
+        + " > " + shell_quote(demo_report_path)
+        + " 2>&1";
+
+    REQUIRE(std::system(demo_command.c_str()) == 0);
+    const auto demo_report = read_file(demo_report_path);
+    REQUIRE(demo_report.find("detected the injected proof mismatch") != std::string::npos);
+
+    std::filesystem::remove_all(repo_dir);
+}
+
 TEST_CASE("CLI repo run supports audit query and why commands") {
     const auto repo_dir = std::filesystem::temp_directory_path() / "pointerverse_cli_repo_run";
     std::filesystem::remove_all(repo_dir);

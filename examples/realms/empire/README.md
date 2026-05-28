@@ -1,8 +1,8 @@
 # Pointerverse Realms: Empire Demo
 
-This is an engine imagination demo, not a new product surface. Pointerverse
-Guard remains the main user-facing product; Realms shows the same graph,
-branching, law, and explanation machinery modeling alternate-history pressure.
+This is a showcase layer above the Pointerverse kernel. It uses the same graph,
+branching, law, proof, and explanation machinery as the repository and Guard
+surfaces, but applies it to alternate-history pressure.
 
 Run it from the repository root:
 

@@ -1,10 +1,12 @@
 # Pointerverse Roadmap
 
-Pointerverse is now oriented around **Pointerverse Audit**: replayable,
-law-checked graph history for AI agents, workflows, and tool execution.
+Pointerverse is oriented around a deterministic graph runtime: canonical
+programs, law-checked deltas, commit proofs, replayable repository history, and
+runtime self-verification.
 
-The Realms layer stays intentionally deferred until the audit engine has a
-clear, useful domain surface.
+Audit, Guard, ingestion, and Realms are applications of the same kernel. They
+should make the core easier to understand, not redefine the project around a
+single audience or workflow.
 
 ## Phase 0 - Specification Lock
 
@@ -35,12 +37,12 @@ level of resulting world hash, law status, and observer projection.
 
 Status: complete.
 
-## Phase 4 - Pointerverse Audit M4
+## Phase 4 - Domain Packages And Queries
 
-Turn the persistent reality store into a domain-denied, queryable audit engine.
-The first domain package is `agent_audit`, with object and relation vocabulary
-for agents, tools, files, pull requests, test runs, repositories, secrets,
-actions, and policies.
+Turn the persistent reality store into a domain-defined, queryable graph
+history. The first domain package is `agent_audit`, with object and relation
+vocabulary for agents, tools, files, pull requests, test runs, repositories,
+secrets, actions, and policies.
 
 Status: implemented.
 
@@ -88,10 +90,9 @@ require before link Agent -> File : reads
 deny reason "{from} modifies {to} without prior read relation"
 ```
 
-## Phase 5 - Evidence Ingestion & Audit Reports
+## Phase 5 - Evidence Ingestion And Reports
 
-Move Pointerverse Audit from hand-authored `.pv` scripts to real agent and
-workflow evidence logs.
+Move from hand-authored `.pv` scripts to real event and evidence logs.
 
 Status: implemented.
 
@@ -126,9 +127,10 @@ Supported JSONL v1 examples:
 {"id":"4","event":"ci.test_passed","pr":"PR42","test":"Tests","ts":1710000003}
 ```
 
-## Phase 6 - Pointerverse Guard
+## Phase 6 - Guard Application
 
-Turn Pointerverse Audit into a one-command PR risk guard for real repositories.
+Add a one-command PR risk surface for real repositories without making code
+review the only product direction.
 
 Status: implemented.
 
@@ -175,13 +177,46 @@ Delivered:
 
 The Realms empire pack remains available as a showcase layer above the kernel.
 
-## Phase 8 - Audit Hardening
+## Phase 8 - Kernel VM Program Chain
 
-Next after M5:
+Make programs first-class commit material instead of decorative metadata.
+
+Status: implemented.
+
+Delivered:
+
+- Canonical `Program` and `ProgramSymbolTable` objects.
+- Instruction stream roots, symbol table hashes, and program hashes on commit
+  records.
+- `KernelVm::execute(snapshot, program)` as the real execution API.
+- Program-bearing transactions with VM delta comparison before commit.
+- Stored program objects and fsck replay checks for program/delta drift.
+
+## Phase 9 - Kernel Sentinel
+
+Add staged boot, self-measurement, heartbeat workers, proof-chain patrol, VM
+replay patrol, and controlled fault injection.
+
+Status: implemented.
+
+Delivered:
+
+- `Repository::open_with_sentinel()` for strict staged boot while preserving
+  compatible `Repository::open()`.
+- Boot stages for manifest, object store, branch refs, commit graph, latest
+  snapshot, VM replay sample, proof chain, and ready.
+- Boot measurement persisted at `.pvstore/sentinel/last_boot`.
+- Integrity region table for Pointerverse-owned repository regions.
+- Synchronous `StorePatrolWorker`, `ProofPatrolWorker`, and `VmReplayWorker`.
+- `pointerverse sentinel boot`, `sentinel patrol`, `sentinel report`, and
+  controlled `sentinel fault` commands.
+- Fault demo at `examples/sentinel_fault_demo/run_demo.sh`.
+
+## Future Work
 
 - Add temporal rule operators for "first broke at commit" and "never after".
 - Add saved query files and reusable domain packages.
 - Make `repo explain` include exact delta summaries and law status diffs.
 - Add branch divergence explanations that name the first causally relevant
   commit on each side.
-- Add importers for real agent/tool execution traces.
+- Add importers for broader execution traces and event streams.
