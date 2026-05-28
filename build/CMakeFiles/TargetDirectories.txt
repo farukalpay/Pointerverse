@@ -1,0 +1,6 @@
+/Users/farukalpay/Documents/GitHub/Pointerverse/build/CMakeFiles/pointerverse_core.dir
+/Users/farukalpay/Documents/GitHub/Pointerverse/build/CMakeFiles/pointerverse.dir
+/Users/farukalpay/Documents/GitHub/Pointerverse/build/CMakeFiles/pointerverse_tests.dir
+/Users/farukalpay/Documents/GitHub/Pointerverse/build/CMakeFiles/test.dir
+/Users/farukalpay/Documents/GitHub/Pointerverse/build/CMakeFiles/edit_cache.dir
+/Users/farukalpay/Documents/GitHub/Pointerverse/build/CMakeFiles/rebuild_cache.dir

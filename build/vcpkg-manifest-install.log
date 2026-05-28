@@ -1,0 +1,57 @@
+Detecting compiler hash for triplet arm64-osx...
+Compiler found: /usr/bin/c++
+The following packages are already installed:
+    catch2:arm64-osx@3.15.0
+    cli11:arm64-osx@2.6.2
+    fmt:arm64-osx@12.1.0
+    nlohmann-json:arm64-osx@3.12.0#2
+  * vcpkg-cmake:arm64-osx@2024-04-23
+  * vcpkg-cmake-config:arm64-osx@2024-05-23
+cli11 provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(CLI11 CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE CLI11::CLI11)
+
+cli11 provides pkg-config modules:
+
+  # C++ command line parser
+  CLI11
+
+The package fmt provides CMake targets:
+
+    find_package(fmt CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE fmt::fmt)
+
+    # Or use the header-only version
+    find_package(fmt CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE fmt::fmt-header-only)
+
+The package nlohmann-json provides CMake targets:
+
+    find_package(nlohmann_json CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE nlohmann_json::nlohmann_json)
+
+The package nlohmann-json can be configured to not provide implicit conversions via a custom triplet file:
+
+    set(nlohmann-json_IMPLICIT_CONVERSIONS OFF)
+
+For more information, see the docs here:
+    
+    https://json.nlohmann.me/api/macros/json_use_implicit_conversions/
+
+catch2 provides CMake targets:
+
+  # this is heuristically generated, and may not be correct
+  find_package(Catch2 CONFIG REQUIRED)
+  target_link_libraries(main PRIVATE Catch2::Catch2 Catch2::Catch2WithMain)
+
+catch2 provides pkg-config modules:
+
+  # A modern, C++-native test framework for C++14 and above (links in default main)
+  catch2-with-main
+
+  # A modern, C++-native, test framework for C++14 and above
+  catch2
+
+All requested installations completed successfully in: 46.9 us

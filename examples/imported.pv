@@ -1,0 +1,7 @@
+# Pointerverse external event import demo.
+external import examples/external_events.json
+law bounded_pressure tolerance=0.25
+evolve 4
+inspect world
+analyze regions
+analyze attractors

@@ -1,0 +1,18 @@
+analyzer reports deterministic invariants after stable evolution 6 0.00136054
+state vectors normalize complex amplitudes 6 0.0012904
+basis states have unit probability mass 6 0.00138242
+world creates stable object handles and semantic relations 6 0.00125304
+script engine runs the basic categorical reality flow 6 0.00141744
+morphism composition checks type compatibility 5 0.00220914
+analyzer flags empty traces 6 0.0012555
+script engine reports invalid composition 6 0.00130474
+evolve records snapshot trace and law results 6 0.00132828
+world rejects invalid relation handles 6 0.0013716
+contradiction seeds create pressure and regions after evolution 5 0.00158787
+scoped observers deny unreachable measurements 5 0.00187937
+external event JSON parser accepts structured event payloads 5 0.00156088
+external conflict compresses into unresolved constraint 5 0.00162794
+pressure formula is deterministic and bounded 4 0.00205092
+failed morphism application records pressure without graph mutation 5 0.0018119
+script engine runs pressure and region workflow 4 0.00204548
+---

@@ -1,0 +1,343 @@
+Start testing: May 28 17:47 +03
+----------------------------------------------------------
+1/17 Testing: morphism composition checks type compatibility
+1/17 Test: morphism composition checks type compatibility
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "morphism composition checks type compatibility"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"morphism composition checks type compatibility" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "morphism composition checks type compatibility"
+Randomness seeded to: 2546166662
+===============================================================================
+All tests passed (8 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"morphism composition checks type compatibility" end time: May 28 17:47 +03
+"morphism composition checks type compatibility" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/17 Testing: scoped observers deny unreachable measurements
+2/17 Test: scoped observers deny unreachable measurements
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "scoped observers deny unreachable measurements"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"scoped observers deny unreachable measurements" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "scoped observers deny unreachable measurements"
+Randomness seeded to: 322737453
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"scoped observers deny unreachable measurements" end time: May 28 17:47 +03
+"scoped observers deny unreachable measurements" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/17 Testing: failed morphism application records pressure without graph mutation
+3/17 Test: failed morphism application records pressure without graph mutation
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "failed morphism application records pressure without graph mutation"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"failed morphism application records pressure without graph mutation" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "failed morphism application records pressure without graph mutation"
+Randomness seeded to: 1715243211
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"failed morphism application records pressure without graph mutation" end time: May 28 17:47 +03
+"failed morphism application records pressure without graph mutation" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/17 Testing: world rejects invalid relation handles
+4/17 Test: world rejects invalid relation handles
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "world rejects invalid relation handles"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"world rejects invalid relation handles" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "world rejects invalid relation handles"
+Randomness seeded to: 1337462186
+===============================================================================
+All tests passed (1 assertion in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"world rejects invalid relation handles" end time: May 28 17:47 +03
+"world rejects invalid relation handles" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/17 Testing: pressure formula is deterministic and bounded
+5/17 Test: pressure formula is deterministic and bounded
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "pressure formula is deterministic and bounded"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"pressure formula is deterministic and bounded" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "pressure formula is deterministic and bounded"
+Randomness seeded to: 1209170852
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"pressure formula is deterministic and bounded" end time: May 28 17:47 +03
+"pressure formula is deterministic and bounded" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/17 Testing: external conflict compresses into unresolved constraint
+6/17 Test: external conflict compresses into unresolved constraint
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "external conflict compresses into unresolved constraint"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"external conflict compresses into unresolved constraint" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "external conflict compresses into unresolved constraint"
+Randomness seeded to: 1257269200
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"external conflict compresses into unresolved constraint" end time: May 28 17:47 +03
+"external conflict compresses into unresolved constraint" time elapsed: 00:00:00
+----------------------------------------------------------
+
+7/17 Testing: script engine reports invalid composition
+7/17 Test: script engine reports invalid composition
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "script engine reports invalid composition"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"script engine reports invalid composition" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "script engine reports invalid composition"
+Randomness seeded to: 3201379597
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"script engine reports invalid composition" end time: May 28 17:47 +03
+"script engine reports invalid composition" time elapsed: 00:00:00
+----------------------------------------------------------
+
+8/17 Testing: analyzer flags empty traces
+8/17 Test: analyzer flags empty traces
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "analyzer flags empty traces"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"analyzer flags empty traces" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "analyzer flags empty traces"
+Randomness seeded to: 3016243472
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"analyzer flags empty traces" end time: May 28 17:47 +03
+"analyzer flags empty traces" time elapsed: 00:00:00
+----------------------------------------------------------
+
+9/17 Testing: world creates stable object handles and semantic relations
+9/17 Test: world creates stable object handles and semantic relations
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "world creates stable object handles and semantic relations"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"world creates stable object handles and semantic relations" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "world creates stable object handles and semantic relations"
+Randomness seeded to: 2933848433
+===============================================================================
+All tests passed (7 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"world creates stable object handles and semantic relations" end time: May 28 17:47 +03
+"world creates stable object handles and semantic relations" time elapsed: 00:00:00
+----------------------------------------------------------
+
+10/17 Testing: state vectors normalize complex amplitudes
+10/17 Test: state vectors normalize complex amplitudes
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "state vectors normalize complex amplitudes"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"state vectors normalize complex amplitudes" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "state vectors normalize complex amplitudes"
+Randomness seeded to: 1397332066
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"state vectors normalize complex amplitudes" end time: May 28 17:47 +03
+"state vectors normalize complex amplitudes" time elapsed: 00:00:00
+----------------------------------------------------------
+
+11/17 Testing: external event JSON parser accepts structured event payloads
+11/17 Test: external event JSON parser accepts structured event payloads
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "external event JSON parser accepts structured event payloads"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"external event JSON parser accepts structured event payloads" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "external event JSON parser accepts structured event payloads"
+Randomness seeded to: 1755943919
+===============================================================================
+All tests passed (5 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"external event JSON parser accepts structured event payloads" end time: May 28 17:47 +03
+"external event JSON parser accepts structured event payloads" time elapsed: 00:00:00
+----------------------------------------------------------
+
+12/17 Testing: script engine runs the basic categorical reality flow
+12/17 Test: script engine runs the basic categorical reality flow
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "script engine runs the basic categorical reality flow"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"script engine runs the basic categorical reality flow" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "script engine runs the basic categorical reality flow"
+Randomness seeded to: 2919633039
+===============================================================================
+All tests passed (5 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"script engine runs the basic categorical reality flow" end time: May 28 17:47 +03
+"script engine runs the basic categorical reality flow" time elapsed: 00:00:00
+----------------------------------------------------------
+
+13/17 Testing: analyzer reports deterministic invariants after stable evolution
+13/17 Test: analyzer reports deterministic invariants after stable evolution
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "analyzer reports deterministic invariants after stable evolution"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"analyzer reports deterministic invariants after stable evolution" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "analyzer reports deterministic invariants after stable evolution"
+Randomness seeded to: 3044532777
+===============================================================================
+All tests passed (5 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"analyzer reports deterministic invariants after stable evolution" end time: May 28 17:47 +03
+"analyzer reports deterministic invariants after stable evolution" time elapsed: 00:00:00
+----------------------------------------------------------
+
+14/17 Testing: script engine runs pressure and region workflow
+14/17 Test: script engine runs pressure and region workflow
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "script engine runs pressure and region workflow"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"script engine runs pressure and region workflow" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "script engine runs pressure and region workflow"
+Randomness seeded to: 2670899443
+===============================================================================
+All tests passed (5 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"script engine runs pressure and region workflow" end time: May 28 17:47 +03
+"script engine runs pressure and region workflow" time elapsed: 00:00:00
+----------------------------------------------------------
+
+15/17 Testing: evolve records snapshot trace and law results
+15/17 Test: evolve records snapshot trace and law results
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "evolve records snapshot trace and law results"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"evolve records snapshot trace and law results" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "evolve records snapshot trace and law results"
+Randomness seeded to: 547234912
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"evolve records snapshot trace and law results" end time: May 28 17:47 +03
+"evolve records snapshot trace and law results" time elapsed: 00:00:00
+----------------------------------------------------------
+
+16/17 Testing: contradiction seeds create pressure and regions after evolution
+16/17 Test: contradiction seeds create pressure and regions after evolution
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "contradiction seeds create pressure and regions after evolution"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"contradiction seeds create pressure and regions after evolution" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "contradiction seeds create pressure and regions after evolution"
+Randomness seeded to: 3491057959
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"contradiction seeds create pressure and regions after evolution" end time: May 28 17:47 +03
+"contradiction seeds create pressure and regions after evolution" time elapsed: 00:00:00
+----------------------------------------------------------
+
+17/17 Testing: basis states have unit probability mass
+17/17 Test: basis states have unit probability mass
+Command: "/Users/farukalpay/Documents/GitHub/Pointerverse/build/pointerverse_tests" "basis states have unit probability mass"
+Directory: /Users/farukalpay/Documents/GitHub/Pointerverse/build
+"basis states have unit probability mass" start time: May 28 17:47 +03
+Output:
+----------------------------------------------------------
+Filters: "basis states have unit probability mass"
+Randomness seeded to: 3549135134
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"basis states have unit probability mass" end time: May 28 17:47 +03
+"basis states have unit probability mass" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: May 28 17:47 +03
