@@ -277,7 +277,7 @@ bool ScriptEngine::run_file(const std::string& path, std::ostream& output) {
         output << fmt::format("=> error: cannot open script '{}'\n", path);
         return false;
     }
-    output << fmt::format("Reality script: {}\n", path);
+    output << fmt::format("World script: {}\n", path);
     return run_stream(input, output, false);
 }
 
@@ -563,7 +563,7 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
         if (command == "inspect") {
             std::string what;
             stream >> what;
-            const Observer observer{"lab"};
+            const Observer observer{"world"};
             if (what == "graph") {
                 output << observer.inspect_graph(world.snapshot()).body;
                 return true;

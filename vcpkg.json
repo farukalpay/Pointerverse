@@ -1,12 +1,13 @@
 {
   "name": "pointerverse",
   "version-string": "0.1.0",
-  "description": "A C++ PR guard that turns git diffs into replayable audit graphs.",
+  "description": "A C++ verifiable graph-world engine with forkable histories and proof-checked stores.",
   "dependencies": [
     "cli11",
     "fmt",
     "nlohmann-json",
-    "openssl"
+    "openssl",
+    "tomlplusplus"
   ],
   "features": {
     "tests": {

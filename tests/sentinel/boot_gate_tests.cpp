@@ -50,7 +50,7 @@ TEST_CASE("sentinel boot gate reaches ready for a clean repository") {
     REQUIRE(std::filesystem::exists(root / "sentinel" / "last_boot"));
 
     BootGateResult opened_result;
-    const auto opened = Repository::open_with_sentinel(root, &opened_result);
+    const auto opened = open_repository_with_sentinel(root, &opened_result);
     REQUIRE(opened_result.ok);
     REQUIRE(opened.has_branch("main"));
     std::filesystem::remove_all(root);

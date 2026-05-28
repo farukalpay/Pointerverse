@@ -1,0 +1,7 @@
+id = "kernel_corruption"
+title = "Corrupt a proof chain and verify the break"
+surface = "sentinel"
+entry = "world.pv"
+runner = "run.sh"
+expected = "expected.txt"
+readme = "README.md"

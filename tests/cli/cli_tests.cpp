@@ -59,6 +59,56 @@ TEST_CASE("CLI runs minimal M0 graph flow and exports JSONL trace") {
     REQUIRE(trace_text.find("\"event\":\"law.check\"") != std::string::npos);
 }
 
+TEST_CASE("CLI exposes world surface and pack registry commands") {
+    const auto repo_dir = std::filesystem::temp_directory_path() / "pointerverse_cli_world_surface";
+    std::filesystem::remove_all(repo_dir);
+    std::filesystem::create_directories(repo_dir);
+
+    const auto source_root = std::filesystem::path{__FILE__}.parent_path().parent_path().parent_path();
+    const auto city_script = source_root / "examples" / "packs" / "city" / "world.pv";
+    const auto world_report = repo_dir / "world.txt";
+    const auto repl_report = repo_dir / "repl.txt";
+    const auto surfaces_report = repo_dir / "surfaces.txt";
+    const auto surface_report = repo_dir / "surface.txt";
+    const auto packs_report = repo_dir / "packs.txt";
+    const auto city_pack_report = repo_dir / "city-pack.txt";
+    const auto city_store = repo_dir / "city-store";
+
+    REQUIRE(std::system((shell_quote(POINTERVERSE_CLI_PATH)
+        + " world run " + shell_quote(city_script)
+        + " > " + shell_quote(world_report)).c_str()) == 0);
+    REQUIRE(read_file(world_report).find("World(city)") != std::string::npos);
+
+    REQUIRE(std::system(("printf 'exit\\n' | "
+        + shell_quote(POINTERVERSE_CLI_PATH)
+        + " world repl > " + shell_quote(repl_report)).c_str()) == 0);
+    REQUIRE(read_file(repl_report).find("Pointerverse world terminal") != std::string::npos);
+
+    REQUIRE(std::system((shell_quote(POINTERVERSE_CLI_PATH)
+        + " surfaces > " + shell_quote(surfaces_report)).c_str()) == 0);
+    REQUIRE(read_file(surfaces_report).find("world") != std::string::npos);
+
+    REQUIRE(std::system((shell_quote(POINTERVERSE_CLI_PATH)
+        + " surface show guard > " + shell_quote(surface_report)).c_str()) == 0);
+    REQUIRE(read_file(surface_report).find("Turn code diffs into replayable graph evidence") != std::string::npos);
+
+    REQUIRE(std::system((shell_quote(POINTERVERSE_CLI_PATH)
+        + " packs > " + shell_quote(packs_report)).c_str()) == 0);
+    REQUIRE(read_file(packs_report).find("city") != std::string::npos);
+
+    const auto pack_command =
+        "POINTERVERSE_BIN=" + shell_quote(POINTERVERSE_CLI_PATH)
+        + " POINTERVERSE_PACK_STORE=" + shell_quote(city_store)
+        + " " + shell_quote(POINTERVERSE_CLI_PATH)
+        + " pack run city > " + shell_quote(city_pack_report);
+    REQUIRE(std::system(pack_command.c_str()) == 0);
+    const auto city_output = read_file(city_pack_report);
+    REQUIRE(city_output.find("Forked blackout from main") != std::string::npos);
+    REQUIRE(city_output.find("Pointerverse Sentinel Boot") != std::string::npos);
+
+    std::filesystem::remove_all(repo_dir);
+}
+
 TEST_CASE("CLI trace replay and verify reconstruct exported history") {
     World world;
     cli::ScriptEngine engine{world};
@@ -176,7 +226,7 @@ TEST_CASE("CLI sentinel commands boot patrol report and fault demo") {
 
     const auto source_root = std::filesystem::path{__FILE__}.parent_path().parent_path().parent_path();
     const auto script = source_root / "examples" / "minimal_reality.pv";
-    const auto demo = source_root / "examples" / "sentinel_fault_demo" / "run_demo.sh";
+    const auto demo = source_root / "examples" / "packs" / "kernel_corruption" / "run.sh";
     const auto report_path = repo_dir / "sentinel_report.txt";
     const auto demo_report_path = repo_dir / "sentinel_demo_report.txt";
 
@@ -282,7 +332,7 @@ TEST_CASE("CLI guard run audits PR demo and enforces strict mode") {
     std::filesystem::create_directories(repo_dir);
 
     const auto source_root = std::filesystem::path{__FILE__}.parent_path().parent_path().parent_path();
-    const auto demo_after = source_root / "examples" / "pr_guard" / "after";
+    const auto demo_after = source_root / "examples" / "packs" / "code_review" / "after";
     const auto report_path = repo_dir / "audit-report.md";
     const auto sarif_path = repo_dir / "audit.sarif";
     const auto strict_report_path = repo_dir / "strict.json";
@@ -354,14 +404,14 @@ TEST_CASE("CLI runs Realms empire demo pack") {
     std::filesystem::create_directories(repo_dir);
 
     const auto source_root = std::filesystem::path{__FILE__}.parent_path().parent_path().parent_path();
-    const auto demo_script = source_root / "examples" / "realms" / "empire" / "run_demo.sh";
+    const auto demo_script = source_root / "examples" / "packs" / "empire" / "run.sh";
     const auto store_path = repo_dir / "empire-store";
     const auto report_path = repo_dir / "realms-report.txt";
 
     const auto command =
         "cd " + shell_quote(source_root)
         + " && POINTERVERSE_BIN=" + shell_quote(POINTERVERSE_CLI_PATH)
-        + " POINTERVERSE_REALMS_STORE=" + shell_quote(store_path)
+        + " POINTERVERSE_PACK_STORE=" + shell_quote(store_path)
         + " " + shell_quote(demo_script)
         + " > " + shell_quote(report_path);
 

@@ -1,0 +1,7 @@
+id = "code_review"
+title = "Turn a risky code diff into graph evidence"
+surface = "guard"
+entry = "world.pv"
+runner = "run.sh"
+expected = "expected.txt"
+readme = "README.md"

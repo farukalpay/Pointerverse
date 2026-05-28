@@ -3,7 +3,7 @@
 
 #include "pv/hash/hasher.hpp"
 #include "pv/sentinel/region_table.hpp"
-#include "pv/storage/canonical_codec.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 
 using namespace pv;
 

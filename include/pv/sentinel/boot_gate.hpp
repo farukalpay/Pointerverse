@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "pv/hash/canonical.hpp"
+#include "pv/storage/repository.hpp"
 
 namespace pv {
 
@@ -42,6 +43,9 @@ struct BootGateResult {
 
 [[nodiscard]] std::string to_string(BootStage stage);
 [[nodiscard]] BootGateResult run_boot_gate(const std::filesystem::path& root);
+[[nodiscard]] Repository open_repository_with_sentinel(
+    std::filesystem::path root,
+    BootGateResult* result = nullptr);
 [[nodiscard]] std::string render_boot_gate_result(const BootGateResult& result);
 
 }  // namespace pv

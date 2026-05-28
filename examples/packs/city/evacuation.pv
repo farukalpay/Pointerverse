@@ -1,0 +1,7 @@
+object EvacuationRoute : Service
+object Shelter : Infrastructure
+link EvacuationRoute -> NorthDistrict : evacuates weight=0.8
+link EvacuationRoute -> SouthDistrict : evacuates weight=0.8
+link Shelter -> EmergencyOps : coordinates_with weight=0.7
+evolve 1
+inspect graph

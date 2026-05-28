@@ -1,0 +1,8 @@
+world new kernel_corruption
+object A : Node
+object B : Node
+link A -> B : causes weight=0.7
+law add reject_dangling_pointer
+law add bounded_weight
+evolve 1
+inspect graph

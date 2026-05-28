@@ -7,7 +7,7 @@
 
 #include "pv/hash/hasher.hpp"
 #include "pv/sentinel/patrol.hpp"
-#include "pv/storage/canonical_codec.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 #include "pv/storage/repository.hpp"
 
 namespace pv {

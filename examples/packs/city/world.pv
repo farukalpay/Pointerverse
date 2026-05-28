@@ -1,0 +1,22 @@
+world new city
+object PowerPlant : Infrastructure
+object Hospital : Infrastructure
+object WaterSystem : Infrastructure
+object OldBridge : Infrastructure
+object NorthDistrict : District
+object SouthDistrict : District
+object EmergencyOps : Service
+
+link PowerPlant -> Hospital : powers weight=0.95 role=Causal
+link WaterSystem -> Hospital : supplies weight=0.9 role=Causal
+link OldBridge -> NorthDistrict : connects weight=0.8
+link OldBridge -> SouthDistrict : connects weight=0.8
+link EmergencyOps -> Hospital : protects weight=1.0
+link EmergencyOps -> WaterSystem : protects weight=0.7
+link Hospital -> PowerPlant : depends_on weight=0.95 role=Causal
+
+law add reject_dangling_pointer
+law add bounded_weight
+law add preserve_relation_type
+evolve 1
+inspect graph

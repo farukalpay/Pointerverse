@@ -12,7 +12,7 @@ namespace pv {
 
 class Observer {
 public:
-    explicit Observer(std::string name = "lab");
+    explicit Observer(std::string name = "world");
 
     [[nodiscard]] Projection inspect_object(const WorldSnapshot& snapshot, ObjectId id) const;
     [[nodiscard]] Projection inspect_object(const WorldSnapshot& snapshot, std::string_view name) const;

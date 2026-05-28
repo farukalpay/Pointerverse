@@ -6,7 +6,7 @@
 #include "pv/compiler/script_compiler.hpp"
 #include "pv/core/world.hpp"
 #include "pv/hash/hasher.hpp"
-#include "pv/storage/canonical_codec.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 
 using namespace pv;
 

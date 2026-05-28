@@ -154,7 +154,7 @@ Primary CLI surface:
 pointerverse guard run --repo . --base origin/main --mode observe
 pointerverse guard run --repo . --base origin/main --format markdown --out audit-report.md
 pointerverse guard run --repo . --base origin/main --markdown-out audit-report.md --json-out audit-report.json --sarif-out audit.sarif
-pointerverse guard run --repo examples/pr_guard/after --base ../before --markdown-out audit-report.md --json-out audit-report.json --sarif-out audit.sarif
+pointerverse guard run --repo examples/packs/code_review/after --base ../before --markdown-out audit-report.md --json-out audit-report.json --sarif-out audit.sarif
 ```
 
 ## Phase 7 - Kernel Hardening
@@ -173,7 +173,7 @@ Delivered:
 - `WorldIndex` for type, name, relation, edge, and attribute lookup.
 - Execution plans with touched object/pointer sets and read/write fact sets.
 - `StoredCommit:v2` commit proofs and fsck proof validation.
-- `examples/kernel_stress` kernel stress demo.
+- `examples/packs/kernel_stress` kernel stress demo.
 
 The Realms empire pack remains available as a showcase layer above the kernel.
 
@@ -201,7 +201,7 @@ Status: implemented.
 
 Delivered:
 
-- `Repository::open_with_sentinel()` for strict staged boot while preserving
+- `open_repository_with_sentinel()` for strict staged boot while preserving
   compatible `Repository::open()`.
 - Boot stages for manifest, object store, branch refs, commit graph, latest
   snapshot, VM replay sample, proof chain, and ready.
@@ -210,7 +210,20 @@ Delivered:
 - Synchronous `StorePatrolWorker`, `ProofPatrolWorker`, and `VmReplayWorker`.
 - `pointerverse sentinel boot`, `sentinel patrol`, `sentinel report`, and
   controlled `sentinel fault` commands.
-- Fault demo at `examples/sentinel_fault_demo/run_demo.sh`.
+- Fault demo at `examples/packs/kernel_corruption/run.sh`.
+
+## Phase 10 - Platform Split
+
+Status: implemented.
+
+Delivered:
+
+- Layered CMake targets for kernel, runtime, storage, Sentinel, query, rules,
+  domains, ingest, Guard, Audit, CLI common, and SDK usage.
+- Command modules under `apps/pointerverse/commands`.
+- `world`, `surfaces`, `surface show`, `packs`, and `pack run` CLI surfaces.
+- Normalized demo packs under `examples/packs`, with `city` as the primary
+  non-AI graph-world demo.
 
 ## Future Work
 

@@ -1,0 +1,14 @@
+world new supply_chain
+object Factory : Site
+object Port : Site
+object Warehouse : Site
+object Clinic : Site
+object Medicine : Supply
+link Factory -> Port : ships_to weight=0.9
+link Port -> Warehouse : routes_to weight=0.8
+link Warehouse -> Clinic : supplies weight=0.95 role=Causal
+link Medicine -> Clinic : needed_by weight=1.0 role=Causal
+law add reject_dangling_pointer
+law add bounded_weight
+evolve 1
+inspect graph

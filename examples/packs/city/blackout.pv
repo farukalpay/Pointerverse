@@ -1,0 +1,7 @@
+object Blackout : Hazard
+object MobileGenerator : Infrastructure
+link Blackout -> PowerPlant : disrupts weight=0.92 role=Causal
+link MobileGenerator -> Hospital : powers weight=0.65
+link EmergencyOps -> MobileGenerator : deploys weight=1.0
+evolve 1
+inspect graph

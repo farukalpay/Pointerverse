@@ -5,7 +5,7 @@
 #include <filesystem>
 
 #include "pv/core/world.hpp"
-#include "pv/storage/canonical_codec.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 #include "pv/storage/repository.hpp"
 
 using namespace pv;

@@ -2,7 +2,7 @@
 #include "pv/kernel/program.hpp"
 
 #include "pv/hash/hasher.hpp"
-#include "pv/storage/canonical_codec.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 
 namespace pv {
 namespace {

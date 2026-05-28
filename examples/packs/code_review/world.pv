@@ -1,0 +1,12 @@
+world new code_review
+object Diff : Evidence
+object SourceChange : Risk
+object MissingTests : Risk
+object SecretCandidate : Risk
+link Diff -> SourceChange : contains weight=1.0
+link SourceChange -> MissingTests : implies weight=0.85 role=Causal
+link Diff -> SecretCandidate : contains weight=0.95 role=Causal
+law add reject_dangling_pointer
+law add bounded_weight
+evolve 1
+inspect graph

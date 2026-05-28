@@ -1,0 +1,7 @@
+id = "supply_chain"
+title = "Trace supplies through forked disruption histories"
+surface = "world"
+entry = "world.pv"
+runner = "run.sh"
+expected = "expected.txt"
+readme = "README.md"

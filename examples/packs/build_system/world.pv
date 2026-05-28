@@ -1,0 +1,14 @@
+world new build_system
+object Source : File
+object Compiler : Tool
+object ObjectFile : Artifact
+object Binary : Artifact
+object TestSuite : Check
+link Source -> Compiler : feeds weight=1.0
+link Compiler -> ObjectFile : produces weight=1.0 role=Causal
+link ObjectFile -> Binary : links_into weight=1.0 role=Causal
+link TestSuite -> Binary : verifies weight=0.8
+law add reject_dangling_pointer
+law add bounded_weight
+evolve 1
+inspect graph

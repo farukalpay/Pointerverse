@@ -17,7 +17,7 @@
 #include "pv/kernel/proof.hpp"
 #include "pv/kernel/vm.hpp"
 #include "pv/sentinel/region_table.hpp"
-#include "pv/storage/canonical_codec.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 #include "pv/storage/object_codec.hpp"
 #include "pv/storage/repository.hpp"
 

@@ -15,7 +15,7 @@
 #include "pv/hash/hasher.hpp"
 #include "pv/kernel/program.hpp"
 #include "pv/sentinel/patrol.hpp"
-#include "pv/storage/canonical_codec.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 #include "pv/storage/content_store.hpp"
 #include "pv/storage/manifest.hpp"
 #include "pv/storage/ref_store.hpp"
@@ -343,6 +343,17 @@ BootGateResult run_boot_gate(const std::filesystem::path& root) {
     }
     write_boot_measurement(root, result.measurement);
     return result;
+}
+
+Repository open_repository_with_sentinel(std::filesystem::path root, BootGateResult* result) {
+    auto boot = run_boot_gate(root);
+    if (result != nullptr) {
+        *result = boot;
+    }
+    if (!boot.ok) {
+        throw std::runtime_error("sentinel boot failed at " + to_string(boot.failed_at));
+    }
+    return Repository::open(std::move(root));
 }
 
 std::string render_boot_gate_result(const BootGateResult& result) {

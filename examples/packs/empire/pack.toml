@@ -1,0 +1,7 @@
+id = "empire"
+title = "Fork an empire into competing histories"
+surface = "realms"
+entry = "world.pv"
+runner = "run.sh"
+expected = "expected.txt"
+readme = "README.md"

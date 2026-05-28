@@ -1,0 +1,3 @@
+objects
+Binary
+status:             clean

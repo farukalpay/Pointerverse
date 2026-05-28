@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "pv/hash/canonical.hpp"
-#include "pv/storage/canonical_codec.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 #include "pv/storage/object_codec.hpp"
 
 namespace pv {

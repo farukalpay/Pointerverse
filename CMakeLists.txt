@@ -12,14 +12,24 @@ find_package(fmt CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(tomlplusplus CONFIG REQUIRED)
 
-add_library(pointerverse_core
-    src/audit/report.cpp
-    src/audit/risk_score.cpp
-    src/audit/timeline.cpp
-    src/audit/violation_report.cpp
+function(pointerverse_configure_target target)
+    target_include_directories(${target}
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+    )
+    target_compile_features(${target} PUBLIC cxx_std_23)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endfunction()
+
+add_library(pointerverse_kernel
     src/category/composition.cpp
-    src/cli/script.cpp
     src/compiler/program_builder.cpp
     src/compiler/script_compiler.cpp
     src/core/id.cpp
@@ -31,26 +41,10 @@ add_library(pointerverse_core
     src/core/snapshot.cpp
     src/core/type.cpp
     src/core/value.cpp
-    src/core/world.cpp
     src/core/world_index.cpp
-    src/domain/agent_audit.cpp
-    src/domain/domain.cpp
-    src/domain/package.cpp
-    src/domain/schema.cpp
-    src/guard/finding.cpp
-    src/guard/git_diff_adapter.cpp
-    src/guard/guard_pipeline.cpp
-    src/guard/policy_pack.cpp
-    src/guard/report.cpp
     src/hash/canonical.cpp
     src/hash/hasher.cpp
-    src/ingest/agent_audit_adapter.cpp
-    src/ingest/evidence.cpp
-    src/ingest/event_schema.cpp
-    src/ingest/ingestion_index.cpp
-    src/ingest/ingestion_pipeline.cpp
-    src/ingest/jsonl_adapter.cpp
-    src/ingest/normalizer.cpp
+    src/kernel/canonical_codec.cpp
     src/kernel/executor.cpp
     src/kernel/execution_plan.cpp
     src/kernel/fact_store.cpp
@@ -62,29 +56,32 @@ add_library(pointerverse_core
     src/law/invariant.cpp
     src/law/verifier.cpp
     src/observer/observer.cpp
-    src/query/explanation.cpp
-    src/query/graph_query.cpp
-    src/query/history_query.cpp
-    src/query/query.cpp
-    src/rule/pattern.cpp
-    src/rule/rule.cpp
-    src/rule/rule_engine.cpp
-    src/runtime/commit_graph.cpp
     src/runtime/commit_record.cpp
     src/runtime/ids.cpp
+    src/trace/recorder.cpp
+)
+pointerverse_configure_target(pointerverse_kernel)
+target_link_libraries(pointerverse_kernel
+    PUBLIC
+        fmt::fmt
+        nlohmann_json::nlohmann_json
+        OpenSSL::Crypto
+)
+
+add_library(pointerverse_runtime
+    src/core/world.cpp
+    src/runtime/commit_graph.cpp
     src/runtime/merge.cpp
     src/runtime/replayer.cpp
     src/runtime/snapshot_store.cpp
     src/runtime/transaction.cpp
     src/runtime/world_store.cpp
-    src/sentinel/boot_gate.cpp
-    src/sentinel/fault_injection.cpp
-    src/sentinel/heartbeat.cpp
-    src/sentinel/patrol.cpp
-    src/sentinel/region_table.cpp
-    src/sentinel/report.cpp
-    src/sentinel/sentinel.cpp
-    src/storage/canonical_codec.cpp
+    src/trace/replayer.cpp
+)
+pointerverse_configure_target(pointerverse_runtime)
+target_link_libraries(pointerverse_runtime PUBLIC pointerverse_kernel)
+
+add_library(pointerverse_storage
     src/storage/content_store.cpp
     src/storage/integrity.cpp
     src/storage/manifest.cpp
@@ -92,43 +89,141 @@ add_library(pointerverse_core
     src/storage/ref_store.cpp
     src/storage/repository.cpp
     src/storage/wal.cpp
-    src/trace/recorder.cpp
-    src/trace/replayer.cpp
 )
+pointerverse_configure_target(pointerverse_storage)
+target_link_libraries(pointerverse_storage PUBLIC pointerverse_runtime)
 
-target_include_directories(pointerverse_core
+add_library(pointerverse_sentinel
+    src/sentinel/boot_gate.cpp
+    src/sentinel/fault_injection.cpp
+    src/sentinel/heartbeat.cpp
+    src/sentinel/patrol.cpp
+    src/sentinel/region_table.cpp
+    src/sentinel/report.cpp
+    src/sentinel/sentinel.cpp
+)
+pointerverse_configure_target(pointerverse_sentinel)
+target_link_libraries(pointerverse_sentinel PUBLIC pointerverse_storage)
+
+add_library(pointerverse_query
+    src/query/explanation.cpp
+    src/query/graph_query.cpp
+    src/query/history_query.cpp
+    src/query/query.cpp
+)
+pointerverse_configure_target(pointerverse_query)
+target_link_libraries(pointerverse_query PUBLIC pointerverse_storage)
+
+add_library(pointerverse_rules
+    src/rule/pattern.cpp
+    src/rule/rule.cpp
+    src/rule/rule_engine.cpp
+)
+pointerverse_configure_target(pointerverse_rules)
+target_link_libraries(pointerverse_rules PUBLIC pointerverse_kernel)
+
+add_library(pointerverse_domains
+    src/domain/agent_audit.cpp
+    src/domain/domain.cpp
+    src/domain/package.cpp
+    src/domain/schema.cpp
+)
+pointerverse_configure_target(pointerverse_domains)
+target_link_libraries(pointerverse_domains PUBLIC pointerverse_rules)
+
+add_library(pointerverse_ingest
+    src/ingest/agent_audit_adapter.cpp
+    src/ingest/evidence.cpp
+    src/ingest/event_schema.cpp
+    src/ingest/ingestion_index.cpp
+    src/ingest/ingestion_pipeline.cpp
+    src/ingest/jsonl_adapter.cpp
+    src/ingest/normalizer.cpp
+)
+pointerverse_configure_target(pointerverse_ingest)
+target_link_libraries(pointerverse_ingest PUBLIC pointerverse_storage pointerverse_domains)
+
+add_library(pointerverse_audit
+    src/audit/report.cpp
+    src/audit/risk_score.cpp
+    src/audit/timeline.cpp
+    src/audit/violation_report.cpp
+)
+pointerverse_configure_target(pointerverse_audit)
+target_link_libraries(pointerverse_audit PUBLIC pointerverse_storage pointerverse_ingest)
+
+add_library(pointerverse_guard
+    src/guard/finding.cpp
+    src/guard/git_diff_adapter.cpp
+    src/guard/guard_pipeline.cpp
+    src/guard/policy_pack.cpp
+    src/guard/report.cpp
+)
+pointerverse_configure_target(pointerverse_guard)
+target_link_libraries(pointerverse_guard PUBLIC pointerverse_ingest pointerverse_audit)
+
+add_library(pointerverse_cli_common
+    src/cli/script.cpp
+    src/cli_app/registry.cpp
+    src/surface/manifest.cpp
+    src/surface/registry.cpp
+)
+pointerverse_configure_target(pointerverse_cli_common)
+target_link_libraries(pointerverse_cli_common
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
+        pointerverse_storage
+        pointerverse_query
+        pointerverse_domains
+        pointerverse_rules
+        CLI11::CLI11
+        tomlplusplus::tomlplusplus
 )
 
-target_link_libraries(pointerverse_core
-    PUBLIC
-        fmt::fmt
-        nlohmann_json::nlohmann_json
-        OpenSSL::Crypto
+add_library(pointerverse_sdk INTERFACE)
+target_link_libraries(pointerverse_sdk
+    INTERFACE
+        pointerverse_kernel
+        pointerverse_runtime
+        pointerverse_storage
+        pointerverse_sentinel
+        pointerverse_query
+        pointerverse_rules
+        pointerverse_domains
 )
 
-target_compile_features(pointerverse_core PUBLIC cxx_std_23)
-
-if(MSVC)
-    target_compile_options(pointerverse_core PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(pointerverse_core PRIVATE -Wall -Wextra -Wpedantic)
-endif()
-
-add_executable(pointerverse apps/pointerverse/main.cpp)
+add_executable(pointerverse
+    apps/pointerverse/main.cpp
+    apps/pointerverse/commands/audit_command.cpp
+    apps/pointerverse/commands/command_utils.cpp
+    apps/pointerverse/commands/commands.cpp
+    apps/pointerverse/commands/guard_command.cpp
+    apps/pointerverse/commands/ingest_command.cpp
+    apps/pointerverse/commands/pack_command.cpp
+    apps/pointerverse/commands/pack_runner.cpp
+    apps/pointerverse/commands/repo_command.cpp
+    apps/pointerverse/commands/sentinel_command.cpp
+    apps/pointerverse/commands/surface_command.cpp
+    apps/pointerverse/commands/trace_command.cpp
+    apps/pointerverse/commands/world_command.cpp
+)
 target_link_libraries(pointerverse
     PRIVATE
-        pointerverse_core
-        CLI11::CLI11
+        pointerverse_cli_common
+        pointerverse_sentinel
+        pointerverse_guard
+        pointerverse_audit
+        pointerverse_ingest
         fmt::fmt
 )
+target_compile_definitions(pointerverse
+    PRIVATE
+        POINTERVERSE_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
+)
 
-add_executable(pointerverse_kernel_stress examples/kernel_stress/kernel_stress.cpp)
+add_executable(pointerverse_kernel_stress examples/packs/kernel_stress/kernel_stress.cpp)
 target_link_libraries(pointerverse_kernel_stress
     PRIVATE
-        pointerverse_core
+        pointerverse_storage
         fmt::fmt
 )
 
@@ -137,6 +232,7 @@ if(POINTERVERSE_BUILD_TESTS)
     find_package(Catch2 3 CONFIG REQUIRED)
 
     add_executable(pointerverse_tests
+        tests/architecture/target_boundary_tests.cpp
         tests/category/category_tests.cpp
         tests/cli/cli_tests.cpp
         tests/core/core_tests.cpp
@@ -178,12 +274,18 @@ if(POINTERVERSE_BUILD_TESTS)
     )
     target_link_libraries(pointerverse_tests
         PRIVATE
-            pointerverse_core
+            pointerverse_cli_common
+            pointerverse_sdk
+            pointerverse_sentinel
+            pointerverse_ingest
+            pointerverse_audit
+            pointerverse_guard
             Catch2::Catch2WithMain
     )
     target_compile_definitions(pointerverse_tests
         PRIVATE
             POINTERVERSE_CLI_PATH="$<TARGET_FILE:pointerverse>"
+            POINTERVERSE_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
     )
 
     include(Catch)
@@ -197,7 +299,7 @@ if(POINTERVERSE_BUILD_TESTS)
         add_test(
             NAME pointerverse_guard_action_script_smoke
             COMMAND bash -c
-                "rm -rf '${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke' && mkdir -p '${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke' && POINTERVERSE_BIN='$<TARGET_FILE:pointerverse>' GITHUB_WORKSPACE='${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke' POINTERVERSE_GUARD_REPO='${CMAKE_CURRENT_SOURCE_DIR}/examples/pr_guard/after' POINTERVERSE_GUARD_BASE='../before' POINTERVERSE_GUARD_COMMENT='false' '${CMAKE_CURRENT_SOURCE_DIR}/scripts/pointerverse-guard-action.sh' > '${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke/out.txt' && grep -q '::error file=config/dev.env' '${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke/out.txt' && grep -q '<!-- pointerverse-guard-comment -->' '${CMAKE_CURRENT_SOURCE_DIR}/scripts/pointerverse-guard-action.sh'"
+                "rm -rf '${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke' && mkdir -p '${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke' && POINTERVERSE_BIN='$<TARGET_FILE:pointerverse>' GITHUB_WORKSPACE='${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke' POINTERVERSE_GUARD_REPO='${CMAKE_CURRENT_SOURCE_DIR}/examples/packs/code_review/after' POINTERVERSE_GUARD_BASE='../before' POINTERVERSE_GUARD_COMMENT='false' '${CMAKE_CURRENT_SOURCE_DIR}/scripts/pointerverse-guard-action.sh' > '${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke/out.txt' && grep -q '::error file=config/dev.env' '${CMAKE_CURRENT_BINARY_DIR}/guard-action-smoke/out.txt' && grep -q '<!-- pointerverse-guard-comment -->' '${CMAKE_CURRENT_SOURCE_DIR}/scripts/pointerverse-guard-action.sh'"
         )
     endif()
 endif()

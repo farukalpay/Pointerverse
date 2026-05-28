@@ -3,7 +3,7 @@
 
 #include "pv/hash/canonical.hpp"
 #include "pv/runtime/commit_record.hpp"
-#include "pv/storage/canonical_codec.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 
 namespace pv {
 

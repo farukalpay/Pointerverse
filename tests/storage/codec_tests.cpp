@@ -4,7 +4,7 @@
 #include "pv/core/world.hpp"
 #include "pv/hash/hasher.hpp"
 #include "pv/runtime/world_store.hpp"
-#include "pv/storage/canonical_codec.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 #include "pv/storage/object_codec.hpp"
 
 using namespace pv;

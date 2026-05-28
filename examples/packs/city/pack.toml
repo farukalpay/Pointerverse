@@ -1,0 +1,7 @@
+id = "city"
+title = "Fork a city into three histories"
+surface = "world"
+entry = "world.pv"
+runner = "run.sh"
+expected = "expected.txt"
+readme = "README.md"

@@ -13,7 +13,7 @@
 
 #include "pv/hash/hasher.hpp"
 #include "pv/kernel/proof.hpp"
-#include "pv/storage/canonical_codec.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 #include "pv/storage/content_store.hpp"
 #include "pv/storage/object_codec.hpp"
 #include "pv/storage/ref_store.hpp"

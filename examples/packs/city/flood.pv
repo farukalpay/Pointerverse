@@ -1,0 +1,7 @@
+object FloodWall : Infrastructure
+object RiverSurge : Hazard
+link RiverSurge -> WaterSystem : threatens weight=0.88 role=Causal
+link FloodWall -> WaterSystem : protects weight=0.75
+link EmergencyOps -> RiverSurge : monitors weight=0.9
+evolve 1
+inspect graph

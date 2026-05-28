@@ -1,0 +1,5 @@
+world new kernel_stress
+object Seed : Node
+law add reject_dangling_pointer
+evolve 1
+inspect graph

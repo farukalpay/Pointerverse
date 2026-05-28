@@ -2,7 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "pv/core/value.hpp"
-#include "pv/storage/canonical_codec.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 
 using namespace pv;
 
