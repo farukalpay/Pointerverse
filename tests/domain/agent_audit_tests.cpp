@@ -14,8 +14,8 @@ TEST_CASE("agent audit domain exposes schema and built-in rule package") {
     const auto package = make_agent_audit_domain();
 
     REQUIRE(package.name == "agent_audit");
-    REQUIRE(package.schema.object_types.size() == 10);
-    REQUIRE(package.schema.relations.size() == 11);
+    REQUIRE(package.schema.object_types.size() == 11);
+    REQUIRE(package.schema.relations.size() == 12);
     REQUIRE(package.rules.size() == 5);
 }
 

@@ -1,4 +1,4 @@
 rule no_write_without_read
 when link Agent -> File : modifies
-require exists link Agent -> File : reads
+require before link Agent -> File : reads
 deny reason "{from} modifies {to} without prior read relation"

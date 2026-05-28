@@ -92,12 +92,20 @@ std::optional<Rule> RuleBuilder::consume_line(std::string_view raw_line) {
     }
 
     if (command == "require") {
-        const auto prefix = std::string{"require exists "};
-        if (!starts_with(line, prefix)) {
-            throw std::invalid_argument("usage: require exists link FROM -> TO : RELATION");
+        RequirementSearch search = RequirementSearch::BeforeOrAfter;
+        std::string prefix{"require exists "};
+        if (starts_with(line, "require before ")) {
+            search = RequirementSearch::Before;
+            prefix = "require before ";
+        } else if (starts_with(line, "require after ")) {
+            search = RequirementSearch::After;
+            prefix = "require after ";
+        } else if (!starts_with(line, prefix)) {
+            throw std::invalid_argument("usage: require exists|before|after link FROM -> TO : RELATION");
         }
         RequirementPattern requirement;
         requirement.pattern = parse_relation_pattern(line.substr(prefix.size()));
+        requirement.search = search;
         draft_.requirements.push_back(std::move(requirement));
         return std::nullopt;
     }

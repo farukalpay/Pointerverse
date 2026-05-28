@@ -14,6 +14,10 @@ find_package(CLI11 CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 
 add_library(pointerverse_core
+    src/audit/report.cpp
+    src/audit/risk_score.cpp
+    src/audit/timeline.cpp
+    src/audit/violation_report.cpp
     src/category/composition.cpp
     src/cli/script.cpp
     src/core/id.cpp
@@ -28,6 +32,13 @@ add_library(pointerverse_core
     src/domain/schema.cpp
     src/hash/canonical.cpp
     src/hash/hasher.cpp
+    src/ingest/agent_audit_adapter.cpp
+    src/ingest/evidence.cpp
+    src/ingest/event_schema.cpp
+    src/ingest/ingestion_index.cpp
+    src/ingest/ingestion_pipeline.cpp
+    src/ingest/jsonl_adapter.cpp
+    src/ingest/normalizer.cpp
     src/law/invariant.cpp
     src/law/verifier.cpp
     src/observer/observer.cpp
@@ -98,6 +109,11 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/core/delta_tests.cpp
         tests/domain/agent_audit_tests.cpp
         tests/hash/canonical_hash_tests.cpp
+        tests/ingest/agent_audit_ingestion_tests.cpp
+        tests/ingest/evidence_tests.cpp
+        tests/ingest/idempotency_tests.cpp
+        tests/ingest/jsonl_adapter_tests.cpp
+        tests/audit/report_tests.cpp
         tests/law/law_tests.cpp
         tests/query/query_tests.cpp
         tests/rule/rule_engine_tests.cpp

@@ -195,3 +195,45 @@ TEST_CASE("CLI repo run supports audit query and why commands") {
 
     std::filesystem::remove_all(repo_dir);
 }
+
+TEST_CASE("CLI ingest and audit commands produce reports") {
+    const auto repo_dir = std::filesystem::temp_directory_path() / "pointerverse_cli_ingest_audit";
+    std::filesystem::remove_all(repo_dir);
+    std::filesystem::create_directories(repo_dir);
+
+    const auto events_path = repo_dir / "events.jsonl";
+    const auto report_path = repo_dir / "audit_report.txt";
+    {
+        std::ofstream output(events_path);
+        output
+            << "{\"id\":\"1\",\"agent\":\"Agent0\",\"event\":\"read_file\",\"path\":\"src/main.cpp\",\"ts\":1710000000}\n"
+            << "{\"id\":\"2\",\"agent\":\"Agent0\",\"event\":\"write_file\",\"path\":\"src/main.cpp\",\"ts\":1710000001}\n"
+            << "{\"id\":\"3\",\"agent\":\"Agent0\",\"event\":\"create_pr\",\"pr\":\"PR42\",\"ts\":1710000002}\n";
+    }
+
+    const auto command =
+        "cd " + shell_quote(repo_dir)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo init .pvstore > " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH)
+        + " ingest agent-log " + shell_quote(events_path)
+        + " --branch main --mode observe --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH)
+        + " audit report main --format text --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH)
+        + " audit export main --format json --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH)
+        + " audit timeline main Agent0 --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo fsck >> " + shell_quote(report_path);
+
+    REQUIRE(std::system(command.c_str()) == 0);
+    const auto report = read_file(report_path);
+    REQUIRE(report.find("Ingestion report") != std::string::npos);
+    REQUIRE(report.find("accepted:             3") != std::string::npos);
+    REQUIRE(report.find("violations: 1") != std::string::npos);
+    REQUIRE(report.find("no_pr_without_tests") != std::string::npos);
+    REQUIRE(report.find("\"violations\"") != std::string::npos);
+    REQUIRE(report.find("Audit timeline: main Agent0") != std::string::npos);
+    REQUIRE(report.find("status:             clean") != std::string::npos);
+
+    std::filesystem::remove_all(repo_dir);
+}

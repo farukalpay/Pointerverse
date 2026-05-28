@@ -10,11 +10,15 @@ Rule same_endpoint_rule(
     std::string name,
     RelationPattern trigger,
     RelationPattern requirement,
-    std::string reason) {
+    std::string reason,
+    RequirementSearch search = RequirementSearch::BeforeOrAfter) {
     Rule rule;
     rule.name = std::move(name);
     rule.trigger = std::move(trigger);
-    rule.requirements.push_back(RequirementPattern{std::move(requirement)});
+    RequirementPattern required;
+    required.pattern = std::move(requirement);
+    required.search = search;
+    rule.requirements.push_back(std::move(required));
     rule.reason = std::move(reason);
     return rule;
 }
@@ -41,6 +45,7 @@ DomainPackage make_agent_audit_domain() {
         "PullRequest",
         "TestRun",
         "Secret",
+        "Evidence",
         "Action",
         "Policy"
     };
@@ -54,6 +59,7 @@ DomainPackage make_agent_audit_domain() {
         "contains",
         "exposes",
         "approves",
+        "backs",
         "tests",
         "touches"
     };
@@ -62,7 +68,8 @@ DomainPackage make_agent_audit_domain() {
         "no_write_without_read",
         RelationPattern{"Agent", "modifies", "File"},
         RelationPattern{"Agent", "reads", "File"},
-        "{from} modifies {to} without prior read relation"));
+        "{from} modifies {to} without prior read relation",
+        RequirementSearch::Before));
 
     Rule no_pr;
     no_pr.name = "no_pr_without_tests";

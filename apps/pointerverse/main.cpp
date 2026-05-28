@@ -12,9 +12,15 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
+#include "pv/audit/report.hpp"
+#include "pv/audit/timeline.hpp"
 #include "pv/cli/script.hpp"
 #include "pv/core/world.hpp"
 #include "pv/hash/canonical.hpp"
+#include "pv/ingest/agent_audit_adapter.hpp"
+#include "pv/ingest/ingestion_index.hpp"
+#include "pv/ingest/ingestion_pipeline.hpp"
+#include "pv/ingest/jsonl_adapter.hpp"
 #include "pv/query/explanation.hpp"
 #include "pv/query/query.hpp"
 #include "pv/runtime/replayer.hpp"
@@ -152,6 +158,36 @@ void print_integrity_report(const pv::IntegrityReport& report) {
     }
     for (const auto& warning : report.warnings) {
         std::cout << fmt::format("warning: {}\n", warning.message);
+    }
+}
+
+pv::VerificationMode parse_ingestion_mode(std::string_view mode) {
+    if (mode == "observe") {
+        return pv::VerificationMode::Observe;
+    }
+    if (mode == "strict") {
+        return pv::VerificationMode::Strict;
+    }
+    throw std::invalid_argument("mode must be observe or strict");
+}
+
+void print_ingestion_report(const pv::IngestionResult& result) {
+    std::cout << "Ingestion report\n";
+    std::cout << "----------------\n";
+    std::cout << fmt::format("events read:          {}\n", result.events_read);
+    std::cout << fmt::format("accepted:             {}\n", result.accepted);
+    std::cout << fmt::format("skipped duplicates:   {}\n", result.skipped_duplicates);
+    std::cout << fmt::format("rejected:             {}\n", result.rejected);
+    std::cout << fmt::format("errors:               {}\n", result.errors);
+    std::cout << fmt::format("violations:           {}\n", result.violations);
+    for (const auto& message : result.messages) {
+        if (message.line > 0) {
+            std::cout << fmt::format("error line {}: {}\n", message.line, message.message);
+        } else if (!message.event_id.empty()) {
+            std::cout << fmt::format("event {}: {}\n", message.event_id, message.message);
+        } else {
+            std::cout << fmt::format("error: {}\n", message.message);
+        }
     }
 }
 
@@ -302,6 +338,19 @@ int main(int argc, char** argv) {
     std::string repo_why_from;
     std::string repo_why_relation;
     std::string repo_why_to;
+    std::string ingest_store_path = ".pvstore";
+    std::string ingest_events_path;
+    std::string ingest_domain = "agent_audit";
+    std::string ingest_branch = "main";
+    std::string ingest_mode = "observe";
+    std::string audit_store_path = ".pvstore";
+    std::string audit_report_branch;
+    std::string audit_report_format = "text";
+    std::string audit_violations_branch;
+    std::string audit_timeline_branch;
+    std::string audit_timeline_object;
+    std::string audit_export_branch;
+    std::string audit_export_format = "json";
 
     auto* lab = app.add_subcommand("lab", "Run a Pointerverse script");
     lab->add_option("script", script_path, "Path to a .pv script")->required();
@@ -317,6 +366,33 @@ int main(int argc, char** argv) {
     trace_verify->add_option("--expect-hash", expected_hash, "Expected final hash")->required();
     auto* expect_commits_option = trace_verify->add_option("--expect-commits", expected_commits, "Expected replayed runtime commit count");
     trace_verify->add_option("--expect-branch", expected_branch, "Expected runtime branch name")->default_val("main");
+
+    auto* ingest = app.add_subcommand("ingest", "Ingest external evidence logs");
+    ingest->require_subcommand(1);
+    auto* ingest_agent_log = ingest->add_subcommand("agent-log", "Ingest agent/tool JSONL evidence");
+    ingest_agent_log->add_option("events", ingest_events_path, "Path to JSONL events")->required();
+    ingest_agent_log->add_option("--domain", ingest_domain, "Audit domain")->default_val("agent_audit");
+    ingest_agent_log->add_option("--branch", ingest_branch, "Branch to ingest into")->default_val("main");
+    ingest_agent_log->add_option("--mode", ingest_mode, "observe | strict")->default_val("observe");
+    ingest_agent_log->add_option("--store", ingest_store_path, "Repository path")->default_val(".pvstore");
+
+    auto* audit = app.add_subcommand("audit", "Audit report commands");
+    audit->require_subcommand(1);
+    auto* audit_report = audit->add_subcommand("report", "Show audit report");
+    audit_report->add_option("branch", audit_report_branch, "Branch name")->required();
+    audit_report->add_option("--format", audit_report_format, "text | json")->default_val("text");
+    audit_report->add_option("--store", audit_store_path, "Repository path")->default_val(".pvstore");
+    auto* audit_violations = audit->add_subcommand("violations", "Show audit violations");
+    audit_violations->add_option("branch", audit_violations_branch, "Branch name")->required();
+    audit_violations->add_option("--store", audit_store_path, "Repository path")->default_val(".pvstore");
+    auto* audit_timeline = audit->add_subcommand("timeline", "Show object audit timeline");
+    audit_timeline->add_option("branch", audit_timeline_branch, "Branch name")->required();
+    audit_timeline->add_option("object", audit_timeline_object, "Object name")->required();
+    audit_timeline->add_option("--store", audit_store_path, "Repository path")->default_val(".pvstore");
+    auto* audit_export = audit->add_subcommand("export", "Export audit report");
+    audit_export->add_option("branch", audit_export_branch, "Branch name")->required();
+    audit_export->add_option("--format", audit_export_format, "json")->default_val("json");
+    audit_export->add_option("--store", audit_store_path, "Repository path")->default_val(".pvstore");
 
     auto* repo = app.add_subcommand("repo", "Persistent reality repository commands");
     repo->require_subcommand(1);
@@ -402,6 +478,97 @@ int main(int argc, char** argv) {
             const auto ok = result.errors.empty() && hash_ok && commits_ok && branch_ok;
             print_runtime_replay_report(result, ok ? "verified" : "hash mismatch");
             return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (ingest_agent_log->parsed()) {
+        try {
+            auto repository = pv::Repository::open(ingest_store_path);
+            std::ifstream input(ingest_events_path);
+            if (!input) {
+                throw std::runtime_error(fmt::format("cannot open events '{}'", ingest_events_path));
+            }
+
+            const pv::JsonlEvidenceAdapter jsonl{"agent-log"};
+            const auto batch = jsonl.read(input);
+            pv::AgentAuditAdapter normalizer;
+            pv::IngestionIndex index{repository.root()};
+            pv::IngestionOptions options;
+            options.branch = ingest_branch;
+            options.domain = ingest_domain;
+            options.mode = parse_ingestion_mode(ingest_mode);
+
+            auto result = pv::IngestionPipeline{repository}.ingest(batch.events, normalizer, index, options);
+            result.events_read += batch.errors.size();
+            result.errors += batch.errors.size();
+            for (const auto& error : batch.errors) {
+                result.messages.push_back(pv::IngestionMessage{error.line, {}, error.message});
+            }
+            print_ingestion_report(result);
+            const auto ok = result.errors == 0
+                && (options.mode == pv::VerificationMode::Observe || result.rejected == 0);
+            return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (audit_report->parsed()) {
+        try {
+            const auto repository = pv::Repository::open(audit_store_path);
+            const auto report = pv::AuditReportGenerator{}.generate(repository, audit_report_branch);
+            if (audit_report_format == "text") {
+                std::cout << pv::render_audit_report_text(report);
+                return EXIT_SUCCESS;
+            }
+            if (audit_report_format == "json") {
+                std::cout << pv::render_audit_report_json(report);
+                return EXIT_SUCCESS;
+            }
+            throw std::invalid_argument("format must be text or json");
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (audit_violations->parsed()) {
+        try {
+            const auto repository = pv::Repository::open(audit_store_path);
+            const auto report = pv::AuditReportGenerator{}.generate(repository, audit_violations_branch);
+            std::cout << pv::render_audit_violations_text(report);
+            return EXIT_SUCCESS;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (audit_timeline->parsed()) {
+        try {
+            const auto repository = pv::Repository::open(audit_store_path);
+            const auto entries = pv::audit_timeline(repository, audit_timeline_branch, audit_timeline_object);
+            std::cout << pv::render_audit_timeline_text(audit_timeline_branch, audit_timeline_object, entries);
+            return EXIT_SUCCESS;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (audit_export->parsed()) {
+        try {
+            const auto repository = pv::Repository::open(audit_store_path);
+            const auto report = pv::AuditReportGenerator{}.generate(repository, audit_export_branch);
+            if (audit_export_format != "json") {
+                throw std::invalid_argument("audit export supports only --format json");
+            }
+            std::cout << pv::render_audit_report_json(report);
+            return EXIT_SUCCESS;
         } catch (const std::exception& error) {
             std::cerr << fmt::format("error: {}\n", error.what());
             return EXIT_FAILURE;

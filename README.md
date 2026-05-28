@@ -48,6 +48,11 @@ cmake --build build
 ./build/pointerverse repo explain main object Agent0
 ./build/pointerverse repo why main Agent0 modifies FileA
 ./build/pointerverse repo fsck
+./build/pointerverse ingest agent-log events.jsonl --domain agent_audit --branch main --mode observe
+./build/pointerverse audit report main --format text
+./build/pointerverse audit violations main
+./build/pointerverse audit timeline main Agent0
+./build/pointerverse audit export main --format json
 ```
 
 ## DSL sample
@@ -86,9 +91,26 @@ rule file:
 ```txt
 rule no_write_without_read
 when link Agent -> File : modifies
-require exists link Agent -> File : reads
+require before link Agent -> File : reads
 deny reason "{from} modifies {to} without prior read relation"
 ```
+
+## Evidence ingest sample
+
+```jsonl
+{"id":"1","agent":"Agent0","event":"read_file","path":"src/main.cpp","ts":1710000000}
+{"id":"2","agent":"Agent0","event":"write_file","path":"src/main.cpp","ts":1710000001}
+{"id":"3","agent":"Agent0","event":"create_pr","pr":"PR42","ts":1710000002}
+```
+
+```sh
+./build/pointerverse repo init .pvstore
+./build/pointerverse ingest agent-log events.jsonl --branch main --mode observe
+./build/pointerverse audit report main
+```
+
+`observe` mode records policy violations in accepted evidence commits. `strict`
+mode rejects events whose graph transition violates active audit laws.
 
 ## License
 

@@ -72,3 +72,82 @@ TEST_CASE("pattern rule accepts a trigger when the required relation exists") {
             CausalRole::Structural),
         verifier).accepted);
 }
+
+TEST_CASE("pattern rule supports before requirements") {
+    auto rules = parse_rules(
+        "rule no_write_without_read\n"
+        "when link Agent -> File : modifies\n"
+        "require before link Agent -> File : reads\n"
+        "deny reason \"{from} modifies {to} without prior read relation\"\n");
+
+    Verifier verifier;
+    verifier.add(std::make_shared<PatternLaw>(rules.front()));
+
+    World world{"audit"};
+    REQUIRE(world.commit(world.object_delta("Agent0", "Agent"), verifier).accepted);
+    REQUIRE(world.commit(world.object_delta("FileA", "File"), verifier).accepted);
+
+    Delta same_transaction;
+    same_transaction.links.push_back(PointerCreate{
+        ObjectRef{world.object_by_name("Agent0")},
+        ObjectRef{world.object_by_name("FileA")},
+        world.relation_type("reads"),
+        CausalRole::Structural,
+        Weight{1.0},
+        "core"
+    });
+    same_transaction.links.push_back(PointerCreate{
+        ObjectRef{world.object_by_name("Agent0")},
+        ObjectRef{world.object_by_name("FileA")},
+        world.relation_type("modifies"),
+        CausalRole::Structural,
+        Weight{1.0},
+        "core"
+    });
+    REQUIRE_FALSE(world.commit(same_transaction, verifier).accepted);
+
+    REQUIRE(world.commit(
+        world.link_delta(
+            world.object_by_name("Agent0"),
+            world.object_by_name("FileA"),
+            "reads",
+            1.0,
+            CausalRole::Structural),
+        verifier).accepted);
+    REQUIRE(world.commit(
+        world.link_delta(
+            world.object_by_name("Agent0"),
+            world.object_by_name("FileA"),
+            "modifies",
+            1.0,
+            CausalRole::Structural),
+        verifier).accepted);
+}
+
+TEST_CASE("observe verifier records violations without rejecting commits") {
+    auto rules = parse_rules(
+        "rule no_write_without_read\n"
+        "when link Agent -> File : modifies\n"
+        "require exists link Agent -> File : reads\n"
+        "deny reason \"{from} modifies {to} without prior read relation\"\n");
+
+    Verifier verifier{VerificationMode::Observe};
+    verifier.add(std::make_shared<PatternLaw>(rules.front()));
+
+    World world{"audit"};
+    REQUIRE(world.commit(world.object_delta("Agent0", "Agent"), verifier).accepted);
+    REQUIRE(world.commit(world.object_delta("FileA", "File"), verifier).accepted);
+
+    const auto observed = world.commit(
+        world.link_delta(
+            world.object_by_name("Agent0"),
+            world.object_by_name("FileA"),
+            "modifies",
+            1.0,
+            CausalRole::Structural),
+        verifier);
+
+    REQUIRE(observed.accepted);
+    REQUIRE(observed.violations.size() == 1);
+    REQUIRE(observed.law_statuses.front().severity == Severity::Error);
+}

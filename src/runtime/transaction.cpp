@@ -133,6 +133,8 @@ std::string to_string(TransactionOrigin origin) {
         return "ForkMerge";
     case TransactionOrigin::Internal:
         return "Internal";
+    case TransactionOrigin::Ingestion:
+        return "Ingestion";
     }
     return "Manual";
 }

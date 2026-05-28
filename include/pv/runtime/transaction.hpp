@@ -20,7 +20,8 @@ enum class TransactionOrigin : std::uint8_t {
     Evolution,
     Replay,
     ForkMerge,
-    Internal
+    Internal,
+    Ingestion
 };
 
 struct Transaction {

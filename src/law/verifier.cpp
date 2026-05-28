@@ -29,6 +29,8 @@ std::string to_string(Severity severity) {
     return "error";
 }
 
+Verifier::Verifier(VerificationMode mode) : mode_(mode) {}
+
 void Verifier::add(std::shared_ptr<Law> law) {
     if (!law) {
         throw std::invalid_argument("law cannot be null");
@@ -41,6 +43,10 @@ void Verifier::add(std::shared_ptr<Law> law) {
 
 void Verifier::add_builtin(std::string_view name, double tolerance) {
     add(make_builtin_law(name, tolerance));
+}
+
+void Verifier::set_mode(VerificationMode mode) noexcept {
+    mode_ = mode;
 }
 
 VerificationResult Verifier::check(const LawCheckContext& ctx) const {
@@ -62,7 +68,7 @@ VerificationResult Verifier::check(const LawCheckContext& ctx) const {
             if (violation.law.empty()) {
                 violation.law = std::string{law->name()};
             }
-            if (rejects_transition(violation.severity)) {
+            if (mode_ == VerificationMode::Strict && rejects_transition(violation.severity)) {
                 result.accepted = false;
             }
             result.statuses.push_back(LawStatus{
@@ -80,6 +86,10 @@ VerificationResult Verifier::check(const LawCheckContext& ctx) const {
 
 const std::vector<std::shared_ptr<Law>>& Verifier::laws() const noexcept {
     return laws_;
+}
+
+VerificationMode Verifier::mode() const noexcept {
+    return mode_;
 }
 
 std::size_t Verifier::size() const noexcept {
