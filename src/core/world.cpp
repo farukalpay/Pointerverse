@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include "pv/runtime/transaction.hpp"
+
 namespace pv {
 namespace {
 
@@ -107,55 +109,14 @@ Delta World::existence_delta(ObjectId object, ExistenceState state) {
 }
 
 CommitResult World::commit(const Delta& delta, const Verifier& verifier) {
-    CommitResult result;
-    result.before_epoch = epoch_;
+    Transaction tx;
+    tx.origin = TransactionOrigin::Manual;
+    tx.label = "world.commit";
+    tx.delta = delta;
+    tx.allow_empty = true;
 
-    World candidate = *this;
-    try {
-        (void)candidate.apply_delta_unchecked(delta);
-    } catch (const std::exception& error) {
-        append_rejection_trace(delta, error.what(), {});
-        result.after_epoch = epoch_;
-        result.accepted = false;
-        result.world_hash = hash();
-        return result;
-    }
-
-    const auto before = snapshot();
-    const auto after = candidate.snapshot();
-    auto verification = verifier.check(LawCheckContext{before, delta, after});
-    result.law_statuses = verification.statuses;
-    result.violations = verification.violations;
-
-    if (!verification.accepted) {
-        append_rejection_trace(delta, "transition rejected by active laws", verification.violations);
-        result.after_epoch = epoch_;
-        result.accepted = false;
-        result.world_hash = hash();
-        return result;
-    }
-
-    auto events = apply_delta_unchecked(delta);
-    for (const auto& status : verification.statuses) {
-        events.push_back(TraceEvent{
-            epoch_,
-            "law.check",
-            {
-                {"world", name_},
-                {"law", status.law},
-                {"status", status.passed ? "ok" : to_string(status.severity)},
-                {"detail", status.explanation}
-            },
-            {{"magnitude", status.magnitude}}
-        });
-    }
-    trace_.append(events);
-
-    result.accepted = true;
-    result.after_epoch = epoch_;
-    result.events = std::move(events);
-    result.world_hash = hash();
-    return result;
+    auto prepared = prepare_transaction(*this, tx, verifier);
+    return commit_prepared(*this, prepared);
 }
 
 EvolveResult World::evolve(std::size_t steps, const Verifier& verifier, const EvolutionProgram& program) {
@@ -281,8 +242,17 @@ const TraceRecorder& World::trace() const noexcept {
     return trace_;
 }
 
+Hash256 World::canonical_hash() const {
+    return snapshot().canonical_hash();
+}
+
 std::uint64_t World::hash() const {
-    return snapshot().structural_hash();
+    return truncated_u64(canonical_hash());
+}
+
+std::vector<TraceEvent> World::preview_delta_unchecked(const Delta& delta) const {
+    World candidate = *this;
+    return candidate.apply_delta_unchecked(delta);
 }
 
 std::vector<TraceEvent> World::apply_delta_unchecked(const Delta& delta) {
@@ -430,17 +400,20 @@ std::optional<std::size_t> World::pointer_index(PointerId id) const noexcept {
     return std::nullopt;
 }
 
-void World::append_rejection_trace(const Delta&, const std::string& reason, const std::vector<LawViolation>& violations) {
-    TraceEvent event{
+std::vector<TraceEvent> World::append_rejection_trace(
+    const Delta&,
+    const std::string& reason,
+    const std::vector<LawViolation>& violations) {
+    std::vector<TraceEvent> events;
+    events.push_back(TraceEvent{
         epoch_,
         "world.transition.rejected",
         {{"world", name_}, {"reason", reason}},
         {{"violations", static_cast<double>(violations.size())}}
-    };
-    trace_.append(std::move(event));
+    });
 
     for (const auto& violation : violations) {
-        trace_.append(TraceEvent{
+        events.push_back(TraceEvent{
             epoch_,
             "law.check",
                 {
@@ -452,6 +425,9 @@ void World::append_rejection_trace(const Delta&, const std::string& reason, cons
             {{"magnitude", violation.magnitude}}
         });
     }
+
+    trace_.append(events);
+    return events;
 }
 
 }  // namespace pv

@@ -11,6 +11,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(fmt CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 add_library(pointerverse_core
     src/category/composition.cpp
@@ -21,9 +22,19 @@ add_library(pointerverse_core
     src/core/snapshot.cpp
     src/core/type.cpp
     src/core/world.cpp
+    src/hash/canonical.cpp
+    src/hash/hasher.cpp
     src/law/invariant.cpp
     src/law/verifier.cpp
     src/observer/observer.cpp
+    src/runtime/commit_graph.cpp
+    src/runtime/commit_record.cpp
+    src/runtime/ids.cpp
+    src/runtime/merge.cpp
+    src/runtime/replayer.cpp
+    src/runtime/snapshot_store.cpp
+    src/runtime/transaction.cpp
+    src/runtime/world_store.cpp
     src/trace/recorder.cpp
     src/trace/replayer.cpp
 )
@@ -38,6 +49,7 @@ target_link_libraries(pointerverse_core
     PUBLIC
         fmt::fmt
         nlohmann_json::nlohmann_json
+        OpenSSL::Crypto
 )
 
 target_compile_features(pointerverse_core PUBLIC cxx_std_23)
@@ -65,7 +77,10 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/cli/cli_tests.cpp
         tests/core/core_tests.cpp
         tests/core/delta_tests.cpp
+        tests/hash/canonical_hash_tests.cpp
         tests/law/law_tests.cpp
+        tests/runtime/branch_tests.cpp
+        tests/runtime/transaction_tests.cpp
         tests/trace/replay_tests.cpp
     )
     target_link_libraries(pointerverse_tests

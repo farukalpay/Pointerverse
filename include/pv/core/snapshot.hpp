@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "pv/hash/canonical.hpp"
 #include "pv/core/object.hpp"
 #include "pv/core/pointer.hpp"
 
@@ -48,7 +49,8 @@ struct WorldSnapshot {
     [[nodiscard]] const PointerSnapshot* pointer(PointerId id) const noexcept;
     [[nodiscard]] std::string type_name(TypeId type) const;
     [[nodiscard]] std::string relation_name(RelationType relation) const;
-    [[nodiscard]] std::uint64_t structural_hash() const noexcept;
+    [[nodiscard]] Hash256 canonical_hash() const;
+    [[nodiscard]] std::uint64_t structural_hash() const;
 };
 
 }  // namespace pv

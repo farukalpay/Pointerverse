@@ -2,15 +2,20 @@
 #include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 
 #include <CLI/CLI.hpp>
 #include <fmt/format.h>
+#include <nlohmann/json.hpp>
 
 #include "pv/cli/script.hpp"
 #include "pv/core/world.hpp"
+#include "pv/hash/canonical.hpp"
+#include "pv/runtime/replayer.hpp"
+#include "pv/runtime/world_store.hpp"
 #include "pv/trace/replayer.hpp"
 
 namespace {
@@ -25,14 +30,54 @@ std::string read_text_file(const std::string& path) {
     return buffer.str();
 }
 
-std::uint64_t parse_hash(const std::string& value) {
+struct ExpectedHash {
+    std::optional<pv::Hash256> canonical;
+    std::optional<std::uint64_t> legacy;
+};
+
+ExpectedHash parse_expected_hash(const std::string& value) {
+    if (auto canonical = pv::parse_hash256(value); canonical.has_value()) {
+        return ExpectedHash{canonical, std::nullopt};
+    }
+
     std::size_t consumed = 0;
     const auto base = value.rfind("0x", 0) == 0 || value.rfind("0X", 0) == 0 ? 16 : 10;
     const auto parsed = std::stoull(value, &consumed, base);
     if (consumed != value.size()) {
         throw std::invalid_argument(fmt::format("invalid hash '{}'", value));
     }
-    return parsed;
+    return ExpectedHash{std::nullopt, parsed};
+}
+
+bool matches_expected_hash(pv::Hash256 actual, const ExpectedHash& expected) {
+    if (expected.canonical.has_value()) {
+        return actual == *expected.canonical;
+    }
+    return expected.legacy.has_value() && pv::truncated_u64(actual) == *expected.legacy;
+}
+
+std::string first_world_name(std::string_view jsonl, std::string fallback) {
+    std::istringstream input{std::string{jsonl}};
+    std::string line;
+    while (std::getline(input, line)) {
+        if (line.empty()) {
+            continue;
+        }
+        try {
+            const auto json = nlohmann::json::parse(line);
+            const auto fields = json.value("fields", nlohmann::json::object());
+            if (!fields.is_object()) {
+                continue;
+            }
+            const auto iter = fields.find("world");
+            if (iter != fields.end() && iter->is_string() && !iter->get<std::string>().empty()) {
+                return iter->get<std::string>();
+            }
+        } catch (const std::exception&) {
+            return fallback;
+        }
+    }
+    return fallback;
 }
 
 void print_replay_report(const pv::ReplayResult& result, std::string_view status) {
@@ -49,6 +94,22 @@ void print_replay_report(const pv::ReplayResult& result, std::string_view status
     }
 }
 
+void print_runtime_replay_report(const pv::RuntimeReplayResult& result, std::string_view status) {
+    std::cout << "Replay report\n";
+    std::cout << "-------------\n";
+    std::cout << fmt::format("events read:      {}\n", result.events_read);
+    std::cout << fmt::format("events replayed:  {}\n", result.events_replayed);
+    std::cout << fmt::format("metadata events:  {}\n", result.metadata_events);
+    std::cout << fmt::format("commits replayed: {}\n", result.commits_replayed);
+    std::cout << fmt::format("branch:           {}\n", result.branch_name);
+    std::cout << fmt::format("final hash:       0x{:016x}\n", pv::truncated_u64(result.final_hash));
+    std::cout << fmt::format("final hash256:    {}\n", pv::to_hex(result.final_hash));
+    std::cout << fmt::format("status:           {}\n", status);
+    for (const auto& error : result.errors) {
+        std::cout << fmt::format("error line {} {}: {}\n", error.line, error.event, error.message);
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -59,6 +120,8 @@ int main(int argc, char** argv) {
     std::string replay_trace_path;
     std::string verify_trace_path;
     std::string expected_hash;
+    std::size_t expected_commits = 0;
+    std::string expected_branch = "main";
 
     auto* lab = app.add_subcommand("lab", "Run a Pointerverse script");
     lab->add_option("script", script_path, "Path to a .pv script")->required();
@@ -72,6 +135,8 @@ int main(int argc, char** argv) {
     auto* trace_verify = trace->add_subcommand("verify", "Replay a JSONL trace and verify its final hash");
     trace_verify->add_option("trace", verify_trace_path, "Path to a JSONL trace")->required();
     trace_verify->add_option("--expect-hash", expected_hash, "Expected final hash")->required();
+    auto* expect_commits_option = trace_verify->add_option("--expect-commits", expected_commits, "Expected replayed runtime commit count");
+    trace_verify->add_option("--expect-branch", expected_branch, "Expected runtime branch name")->default_val("main");
 
     CLI11_PARSE(app, argc, argv);
 
@@ -92,10 +157,16 @@ int main(int argc, char** argv) {
         try {
             const auto jsonl = read_text_file(verify_trace_path);
             const pv::Verifier verifier;
-            const auto result = pv::TraceReplayer{}.replay_jsonl(jsonl, verifier);
-            const auto expected = parse_hash(expected_hash);
-            const auto ok = result.errors.empty() && result.final_hash == expected;
-            print_replay_report(result, ok ? "verified" : "hash mismatch");
+            pv::WorldStore store;
+            const auto world_name = first_world_name(jsonl, "world");
+            const auto branch = store.create_branch(expected_branch, pv::World{world_name});
+            const auto result = pv::RuntimeReplayer{}.replay_into(store, branch, jsonl, verifier);
+            const auto expected = parse_expected_hash(expected_hash);
+            const auto hash_ok = matches_expected_hash(result.final_hash, expected);
+            const auto commits_ok = expect_commits_option->count() == 0 || result.commits_replayed == expected_commits;
+            const auto branch_ok = result.branch_name == expected_branch;
+            const auto ok = result.errors.empty() && hash_ok && commits_ok && branch_ok;
+            print_runtime_replay_report(result, ok ? "verified" : "hash mismatch");
             return ok ? EXIT_SUCCESS : EXIT_FAILURE;
         } catch (const std::exception& error) {
             std::cerr << fmt::format("error: {}\n", error.what());

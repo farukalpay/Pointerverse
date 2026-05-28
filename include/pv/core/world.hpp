@@ -11,10 +11,16 @@
 
 #include "pv/core/delta.hpp"
 #include "pv/core/snapshot.hpp"
+#include "pv/hash/canonical.hpp"
 #include "pv/law/verifier.hpp"
 #include "pv/trace/recorder.hpp"
 
 namespace pv {
+
+class World;
+class WorldStore;
+struct PreparedTransaction;
+struct Transaction;
 
 struct CommitResult {
     bool accepted{false};
@@ -25,6 +31,9 @@ struct CommitResult {
     std::vector<TraceEvent> events;
     std::uint64_t world_hash{0};
 };
+
+[[nodiscard]] PreparedTransaction prepare_transaction(const World& world, const Transaction& tx, const Verifier& verifier);
+[[nodiscard]] CommitResult commit_prepared(World& world, const PreparedTransaction& prepared);
 
 struct EvolveResult {
     std::size_t requested_steps{0};
@@ -88,12 +97,21 @@ public:
     [[nodiscard]] const std::vector<Object>& objects() const noexcept;
     [[nodiscard]] const std::vector<PointerEdge>& pointers() const noexcept;
     [[nodiscard]] const TraceRecorder& trace() const noexcept;
+    [[nodiscard]] Hash256 canonical_hash() const;
     [[nodiscard]] std::uint64_t hash() const;
 
 private:
+    friend PreparedTransaction prepare_transaction(const World& world, const Transaction& tx, const Verifier& verifier);
+    friend CommitResult commit_prepared(World& world, const PreparedTransaction& prepared);
+    friend class WorldStore;
+
     [[nodiscard]] std::vector<TraceEvent> apply_delta_unchecked(const Delta& delta);
+    [[nodiscard]] std::vector<TraceEvent> preview_delta_unchecked(const Delta& delta) const;
     [[nodiscard]] std::optional<std::size_t> pointer_index(PointerId id) const noexcept;
-    void append_rejection_trace(const Delta& delta, const std::string& reason, const std::vector<LawViolation>& violations);
+    std::vector<TraceEvent> append_rejection_trace(
+        const Delta& delta,
+        const std::string& reason,
+        const std::vector<LawViolation>& violations);
 
     WorldId id_;
     std::string name_;

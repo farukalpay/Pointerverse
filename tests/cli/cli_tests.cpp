@@ -65,6 +65,7 @@ TEST_CASE("CLI trace replay and verify reconstruct exported history") {
     const auto trace_path = std::filesystem::temp_directory_path() / "pointerverse_cli_replay_trace.jsonl";
     const auto replay_report = std::filesystem::temp_directory_path() / "pointerverse_cli_replay_report.txt";
     const auto verify_report = std::filesystem::temp_directory_path() / "pointerverse_cli_verify_report.txt";
+    const auto verify256_report = std::filesystem::temp_directory_path() / "pointerverse_cli_verify256_report.txt";
 
     std::ostringstream output;
     std::istringstream input{
@@ -92,6 +93,18 @@ TEST_CASE("CLI trace replay and verify reconstruct exported history") {
     REQUIRE(std::system(verify_command.c_str()) == 0);
     const auto verify_output = read_file(verify_report);
     REQUIRE(verify_output.find("status:           verified") != std::string::npos);
+
+    const auto verify256_command = shell_quote(POINTERVERSE_CLI_PATH)
+        + " trace verify " + shell_quote(trace_path)
+        + " --expect-hash " + to_hex(world.canonical_hash())
+        + " --expect-commits 4"
+        + " --expect-branch main"
+        + " > " + shell_quote(verify256_report);
+    REQUIRE(std::system(verify256_command.c_str()) == 0);
+    const auto verify256_output = read_file(verify256_report);
+    REQUIRE(verify256_output.find("commits replayed: 4") != std::string::npos);
+    REQUIRE(verify256_output.find("branch:           main") != std::string::npos);
+    REQUIRE(verify256_output.find("status:           verified") != std::string::npos);
 }
 
 TEST_CASE("CLI replay with same commands yields deterministic hash") {
