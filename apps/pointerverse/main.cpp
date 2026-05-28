@@ -6,6 +6,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <CLI/CLI.hpp>
 #include <fmt/format.h>
@@ -14,6 +15,8 @@
 #include "pv/cli/script.hpp"
 #include "pv/core/world.hpp"
 #include "pv/hash/canonical.hpp"
+#include "pv/query/explanation.hpp"
+#include "pv/query/query.hpp"
 #include "pv/runtime/replayer.hpp"
 #include "pv/runtime/world_store.hpp"
 #include "pv/storage/integrity.hpp"
@@ -82,6 +85,30 @@ std::string first_world_name(std::string_view jsonl, std::string fallback) {
     return fallback;
 }
 
+std::string first_script_world_name(const std::string& path, std::string fallback) {
+    std::ifstream input(path);
+    if (!input) {
+        return fallback;
+    }
+
+    std::string line;
+    while (std::getline(input, line)) {
+        const auto marker = line.find('#');
+        if (marker != std::string::npos) {
+            line = line.substr(0, marker);
+        }
+        std::istringstream stream(line);
+        std::string command;
+        std::string subcommand;
+        std::string name;
+        stream >> command >> subcommand >> name;
+        if (command == "world" && subcommand == "new" && !name.empty()) {
+            return name;
+        }
+    }
+    return fallback;
+}
+
 void print_replay_report(const pv::ReplayResult& result, std::string_view status) {
     std::cout << "Replay report\n";
     std::cout << "-------------\n";
@@ -132,6 +159,115 @@ std::string short_hash(pv::CommitId id) {
     return pv::to_hex(id.value).substr(0, 12);
 }
 
+std::string object_name(const pv::WorldSnapshot& snapshot, pv::ObjectId id) {
+    if (const auto* object = snapshot.object(id); object != nullptr) {
+        return object->name;
+    }
+    return pv::to_string(id);
+}
+
+const pv::ObjectSnapshot* object_by_name(const pv::WorldSnapshot& snapshot, std::string_view name) {
+    for (const auto& object : snapshot.objects) {
+        if (object.name == name) {
+            return &object;
+        }
+    }
+    return nullptr;
+}
+
+bool active_at(const pv::PointerSnapshot& pointer, pv::Epoch epoch) noexcept {
+    return pointer.born_at <= epoch && (!pointer.expires_at.has_value() || epoch < *pointer.expires_at);
+}
+
+void print_query_result(const pv::WorldSnapshot& snapshot, const pv::QueryResult& result) {
+    if (!result.objects.empty()) {
+        std::cout << "objects\n";
+        for (const auto& id : result.objects) {
+            const auto* object = snapshot.object(id);
+            std::cout << fmt::format(
+                "  {} {} {}\n",
+                object != nullptr ? object->name : pv::to_string(id),
+                pv::to_string(id),
+                object != nullptr ? snapshot.type_name(object->type) : "");
+        }
+    }
+    if (!result.pointers.empty()) {
+        std::cout << "links\n";
+        for (const auto& id : result.pointers) {
+            const auto* pointer = snapshot.pointer(id);
+            if (pointer == nullptr || !active_at(*pointer, snapshot.epoch)) {
+                continue;
+            }
+            std::cout << fmt::format(
+                "  {} {} -> {} : {}\n",
+                pv::to_string(id),
+                object_name(snapshot, pointer->from),
+                object_name(snapshot, pointer->to),
+                snapshot.relation_name(pointer->relation));
+        }
+    }
+    if (!result.commits.empty()) {
+        std::cout << "commits\n";
+        for (const auto& id : result.commits) {
+            std::cout << fmt::format("  {}\n", short_hash(id));
+        }
+    }
+    if (!result.events.empty()) {
+        std::cout << "events\n";
+        for (const auto& event : result.events) {
+            std::cout << fmt::format("  epoch {} {}\n", event.epoch.value, event.event);
+        }
+    }
+    if (result.objects.empty() && result.pointers.empty() && result.commits.empty() && result.events.empty()) {
+        std::cout << "empty\n";
+    }
+}
+
+pv::QueryResult run_query(const pv::Repository& repository, std::string_view branch, const std::vector<std::string>& terms) {
+    if (terms.empty()) {
+        throw std::invalid_argument("query cannot be empty");
+    }
+
+    const pv::QueryEngine query;
+    const auto snapshot = repository.world(branch).snapshot();
+    if (terms[0] == "objects" && terms.size() == 3 && terms[1] == "type") {
+        return query.objects_by_type(snapshot, terms[2]);
+    }
+    if (terms[0] == "objects" && terms.size() == 3 && terms[1] == "name") {
+        return query.objects_by_name(snapshot, terms[2]);
+    }
+    if (terms[0] == "links" && terms.size() == 3 && terms[1] == "relation") {
+        return query.links_by_relation(snapshot, terms[2]);
+    }
+    if (terms[0] == "commits" && terms.size() == 4 && terms[1] == "touching" && terms[2] == "object") {
+        const auto* object = object_by_name(snapshot, terms[3]);
+        if (object == nullptr) {
+            return {};
+        }
+        return query.commits_touching_object(repository, branch, object->id);
+    }
+    if (terms[0] == "events" && terms.size() == 3 && terms[1] == "name") {
+        return query.events_by_name(repository, branch, terms[2]);
+    }
+    if (terms[0] == "cone" && terms.size() >= 3 && terms[1] == "object") {
+        const auto* object = object_by_name(snapshot, terms[2]);
+        if (object == nullptr) {
+            return {};
+        }
+        std::size_t depth = 1;
+        std::string direction = "both";
+        for (std::size_t index = 3; index + 1 < terms.size(); index += 2) {
+            if (terms[index] == "depth") {
+                depth = static_cast<std::size_t>(std::stoull(terms[index + 1]));
+            } else if (terms[index] == "direction") {
+                direction = terms[index + 1];
+            }
+        }
+        return query.causal_cone(snapshot, object->id, depth, direction);
+    }
+    throw std::invalid_argument("unsupported query");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -154,6 +290,18 @@ int main(int argc, char** argv) {
     std::string repo_right_branch;
     std::string repo_checkout_branch;
     std::string repo_history_branch;
+    std::string repo_run_script;
+    std::string repo_run_branch;
+    std::string repo_repl_branch;
+    std::string repo_query_branch;
+    std::vector<std::string> repo_query_terms;
+    std::string repo_explain_branch;
+    std::string repo_explain_kind;
+    std::string repo_explain_target;
+    std::string repo_why_branch;
+    std::string repo_why_from;
+    std::string repo_why_relation;
+    std::string repo_why_to;
 
     auto* lab = app.add_subcommand("lab", "Run a Pointerverse script");
     lab->add_option("script", script_path, "Path to a .pv script")->required();
@@ -182,6 +330,28 @@ int main(int argc, char** argv) {
     auto* repo_commit = repo->add_subcommand("commit", "Replay and commit a JSONL trace");
     repo_commit->add_option("trace", repo_trace_path, "Path to a JSONL trace")->required();
     repo_commit->add_option("--branch", repo_branch, "Branch to commit into; defaults to current branch");
+
+    auto* repo_run = repo->add_subcommand("run", "Run a Pointerverse script against a repository branch");
+    repo_run->add_option("script", repo_run_script, "Path to a .pv script")->required();
+    repo_run->add_option("--branch", repo_run_branch, "Branch to run against; defaults to current branch");
+
+    auto* repo_repl = repo->add_subcommand("repl", "Start a repository-backed Pointerverse REPL");
+    repo_repl->add_option("--branch", repo_repl_branch, "Branch to run against; defaults to current branch");
+
+    auto* repo_query = repo->add_subcommand("query", "Query branch graph and history");
+    repo_query->add_option("branch", repo_query_branch, "Branch name")->required();
+    repo_query->add_option("query", repo_query_terms, "Query terms")->required()->expected(-1);
+
+    auto* repo_explain = repo->add_subcommand("explain", "Explain a branch object or commit");
+    repo_explain->add_option("branch", repo_explain_branch, "Branch name")->required();
+    repo_explain->add_option("kind", repo_explain_kind, "object | commit")->required();
+    repo_explain->add_option("target", repo_explain_target, "Object name or commit prefix")->required();
+
+    auto* repo_why = repo->add_subcommand("why", "Explain why a relation exists");
+    repo_why->add_option("branch", repo_why_branch, "Branch name")->required();
+    repo_why->add_option("from", repo_why_from, "Source object")->required();
+    repo_why->add_option("relation", repo_why_relation, "Relation name")->required();
+    repo_why->add_option("to", repo_why_to, "Target object")->required();
 
     auto* repo_verify = repo->add_subcommand("verify", "Verify repository integrity");
     auto* repo_fsck = repo->add_subcommand("fsck", "Check repository integrity");
@@ -274,6 +444,85 @@ int main(int argc, char** argv) {
             const auto result = repository.replay_trace(branch, jsonl, verifier);
             print_runtime_replay_report(result, result.errors.empty() ? "committed" : "errors");
             return result.errors.empty() ? EXIT_SUCCESS : EXIT_FAILURE;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_run->parsed()) {
+        try {
+            auto repository = pv::Repository::open(repo_path);
+            const auto branch = repo_run_branch.empty() ? repository.current_branch() : repo_run_branch;
+            if (!repository.has_branch(branch)) {
+                (void)repository.create_branch(branch, pv::World{first_script_world_name(repo_run_script, "world")});
+            }
+            pv::cli::ScriptEngine engine{repository, branch};
+            return engine.run_file(repo_run_script, std::cout) ? EXIT_SUCCESS : EXIT_FAILURE;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_repl->parsed()) {
+        try {
+            auto repository = pv::Repository::open(repo_path);
+            const auto branch = repo_repl_branch.empty() ? repository.current_branch() : repo_repl_branch;
+            if (!repository.has_branch(branch)) {
+                (void)repository.create_branch(branch, pv::World{"world"});
+            }
+            pv::cli::ScriptEngine engine{repository, branch};
+            std::cout << "Pointerverse repository terminal\n";
+            std::cout << "Type help for commands, exit to quit.\n";
+            return engine.run_stream(std::cin, std::cout, true) ? EXIT_SUCCESS : EXIT_FAILURE;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_query->parsed()) {
+        try {
+            const auto repository = pv::Repository::open(repo_path);
+            const auto result = run_query(repository, repo_query_branch, repo_query_terms);
+            print_query_result(repository.world(repo_query_branch).snapshot(), result);
+            return EXIT_SUCCESS;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_explain->parsed()) {
+        try {
+            const auto repository = pv::Repository::open(repo_path);
+            const pv::ExplanationEngine explain;
+            if (repo_explain_kind == "object") {
+                std::cout << explain.explain_object(repository, repo_explain_branch, repo_explain_target);
+                return EXIT_SUCCESS;
+            }
+            if (repo_explain_kind == "commit") {
+                std::cout << explain.explain_commit(repository, repo_explain_branch, repo_explain_target);
+                return EXIT_SUCCESS;
+            }
+            throw std::invalid_argument("usage: repo explain BRANCH object|commit TARGET");
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_why->parsed()) {
+        try {
+            const auto repository = pv::Repository::open(repo_path);
+            std::cout << pv::ExplanationEngine{}.why_relation(
+                repository,
+                repo_why_branch,
+                repo_why_from,
+                repo_why_relation,
+                repo_why_to);
+            return EXIT_SUCCESS;
         } catch (const std::exception& error) {
             std::cerr << fmt::format("error: {}\n", error.what());
             return EXIT_FAILURE;

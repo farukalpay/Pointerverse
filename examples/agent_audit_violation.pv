@@ -1,0 +1,8 @@
+domain use agent_audit
+
+object Agent0 : Agent
+object FileA : File
+
+link Agent0 -> FileA : modifies weight=1.0
+
+law add no_write_without_read

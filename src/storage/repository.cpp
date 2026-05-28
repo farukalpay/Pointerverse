@@ -407,6 +407,10 @@ std::vector<BranchRef> Repository::list_branches() const {
     return refs_.list_branches();
 }
 
+bool Repository::has_branch(std::string_view name) const {
+    return store_.find_branch(name).has_value();
+}
+
 std::vector<CommitRecord> Repository::history(std::string_view branch) const {
     return store_.history(require_branch(branch));
 }

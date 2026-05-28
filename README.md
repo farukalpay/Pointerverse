@@ -1,12 +1,14 @@
 # Pointerverse
 
-Pointerverse is a C++ experimental reality kernel where objects exist through
-typed relations, transformations compose as morphisms, and every world
-transition is admitted or rejected by explicit laws.
+Pointerverse is a C++ audit engine where objects exist through typed relations,
+transformations compose as morphisms, and every graph transition is admitted or
+rejected by explicit laws.
 
-It is not a game engine, not a story generator, and not an AI chatbot. It is a
-lawful graph-based substrate for building artificial realities whose internal
-structure can be measured, replayed, forked, and analyzed.
+The first product domain is **Pointerverse Audit**: replayable, law-checked
+graph history for AI agents, workflows, and tool execution. Agents, tools,
+files, pull requests, tests, secrets, repositories, and policies are modeled as
+objects and links. Repository history can be replayed, queried, explained,
+forked, compared, and verified with fsck.
 
 ## Build
 
@@ -41,6 +43,10 @@ cmake --build build
 ./build/pointerverse repo branch fork main experiment/a
 ./build/pointerverse repo branch compare main experiment/a
 ./build/pointerverse repo history main
+./build/pointerverse repo run examples/agent_audit_valid.pv --branch main
+./build/pointerverse repo query main objects type Agent
+./build/pointerverse repo explain main object Agent0
+./build/pointerverse repo why main Agent0 modifies FileA
 ./build/pointerverse repo fsck
 ```
 
@@ -58,6 +64,30 @@ law add bounded_weight
 evolve 4
 inspect graph
 trace export trace.jsonl
+```
+
+## Audit DSL sample
+
+```txt
+domain use agent_audit
+
+object Agent0 : Agent
+object FileA : File
+
+link Agent0 -> FileA : modifies weight=1.0
+
+law add no_write_without_read
+```
+
+This is rejected because `Agent0` modifies `FileA` without a prior `reads`
+relation. Custom pattern laws can be declared inline or loaded from a domain
+rule file:
+
+```txt
+rule no_write_without_read
+when link Agent -> File : modifies
+require exists link Agent -> File : reads
+deny reason "{from} modifies {to} without prior read relation"
 ```
 
 ## License

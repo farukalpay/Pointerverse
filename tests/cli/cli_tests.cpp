@@ -168,3 +168,30 @@ TEST_CASE("CLI repo commands persist replayed trace and verify fsck") {
 
     std::filesystem::remove_all(repo_dir);
 }
+
+TEST_CASE("CLI repo run supports audit query and why commands") {
+    const auto repo_dir = std::filesystem::temp_directory_path() / "pointerverse_cli_repo_run";
+    std::filesystem::remove_all(repo_dir);
+    std::filesystem::create_directories(repo_dir);
+
+    const auto source_root = std::filesystem::path{__FILE__}.parent_path().parent_path().parent_path();
+    const auto script = source_root / "examples" / "agent_audit_valid.pv";
+    const auto report_path = repo_dir / "repo_run_report.txt";
+
+    const auto command =
+        "cd " + shell_quote(repo_dir)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo init .pvstore > " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo run " + shell_quote(script) + " --branch main >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo query main objects type Agent >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo why main Agent0 modifies FileA >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo fsck >> " + shell_quote(report_path);
+
+    REQUIRE(std::system(command.c_str()) == 0);
+    const auto report = read_file(report_path);
+    REQUIRE(report.find("=> domain agent_audit loaded") != std::string::npos);
+    REQUIRE(report.find("Agent0") != std::string::npos);
+    REQUIRE(report.find("why Agent0 modifies FileA") != std::string::npos);
+    REQUIRE(report.find("status:             clean") != std::string::npos);
+
+    std::filesystem::remove_all(repo_dir);
+}

@@ -46,6 +46,7 @@ public:
 
     [[nodiscard]] MergeAnalysis analyze_merge(std::string_view left, std::string_view right) const;
     [[nodiscard]] std::vector<BranchRef> list_branches() const;
+    [[nodiscard]] bool has_branch(std::string_view name) const;
     [[nodiscard]] std::vector<CommitRecord> history(std::string_view branch) const;
     [[nodiscard]] const World& world(std::string_view branch) const;
     [[nodiscard]] World& mutable_world(std::string_view branch);

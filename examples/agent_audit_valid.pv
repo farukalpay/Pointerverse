@@ -1,0 +1,17 @@
+domain use agent_audit
+
+object Agent0 : Agent
+object Repo : Repository
+object FileA : File
+object PR1 : PullRequest
+object Tests : TestRun
+
+link Agent0 -> FileA : reads weight=1.0
+link Agent0 -> FileA : modifies weight=1.0
+link PR1 -> Tests : tests weight=1.0
+
+law add no_write_without_read
+law add no_pr_without_tests
+
+evolve 1
+inspect graph

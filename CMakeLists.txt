@@ -22,11 +22,22 @@ add_library(pointerverse_core
     src/core/snapshot.cpp
     src/core/type.cpp
     src/core/world.cpp
+    src/domain/agent_audit.cpp
+    src/domain/domain.cpp
+    src/domain/package.cpp
+    src/domain/schema.cpp
     src/hash/canonical.cpp
     src/hash/hasher.cpp
     src/law/invariant.cpp
     src/law/verifier.cpp
     src/observer/observer.cpp
+    src/query/explanation.cpp
+    src/query/graph_query.cpp
+    src/query/history_query.cpp
+    src/query/query.cpp
+    src/rule/pattern.cpp
+    src/rule/rule.cpp
+    src/rule/rule_engine.cpp
     src/runtime/commit_graph.cpp
     src/runtime/commit_record.cpp
     src/runtime/ids.cpp
@@ -85,8 +96,11 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/cli/cli_tests.cpp
         tests/core/core_tests.cpp
         tests/core/delta_tests.cpp
+        tests/domain/agent_audit_tests.cpp
         tests/hash/canonical_hash_tests.cpp
         tests/law/law_tests.cpp
+        tests/query/query_tests.cpp
+        tests/rule/rule_engine_tests.cpp
         tests/runtime/branch_tests.cpp
         tests/runtime/transaction_tests.cpp
         tests/storage/codec_tests.cpp

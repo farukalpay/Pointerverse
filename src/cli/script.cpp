@@ -9,9 +9,13 @@
 #include <stdexcept>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "pv/category/composition.hpp"
+#include "pv/domain/domain.hpp"
+#include "pv/hash/canonical.hpp"
 #include "pv/observer/observer.hpp"
+#include "pv/storage/repository.hpp"
 
 namespace pv::cli {
 namespace {
@@ -67,25 +71,154 @@ std::string string_option(
     return fallback;
 }
 
+CommitResult result_from_record(const CommitRecord& record) {
+    return CommitResult{
+        record.accepted,
+        record.before_epoch,
+        record.after_epoch,
+        record.law_statuses,
+        record.violations,
+        record.events,
+        truncated_u64(record.after_hash)
+    };
+}
+
+bool print_violations(std::ostream& output, const std::vector<LawViolation>& violations) {
+    output << "=> rejected\n";
+    for (const auto& violation : violations) {
+        output << fmt::format(
+            "=> law.{} {} magnitude={:.12g}: {}\n",
+            violation.law,
+            to_string(violation.severity),
+            violation.magnitude,
+            violation.explanation);
+    }
+    return false;
+}
+
 bool print_commit(std::ostream& output, const CommitResult& result) {
     if (!result.accepted) {
-        output << "=> rejected\n";
-        for (const auto& violation : result.violations) {
-            output << fmt::format(
-                "=> law.{} {} magnitude={:.12g}: {}\n",
-                violation.law,
-                to_string(violation.severity),
-                violation.magnitude,
-                violation.explanation);
-        }
-        return false;
+        return print_violations(output, result.violations);
     }
     return true;
 }
 
+bool is_rule_command(std::string_view command) noexcept {
+    return command == "rule" || command == "when" || command == "require" || command == "deny";
+}
+
+std::vector<std::string> morphism_path_from_events(const std::vector<TraceEvent>& events, std::string_view fallback) {
+    std::vector<std::string> path;
+    for (const auto& event : events) {
+        if (event.event != "morphism.apply") {
+            continue;
+        }
+        const auto iter = event.fields.find("name");
+        if (iter != event.fields.end() && iter->second != "id") {
+            path.push_back(iter->second);
+        }
+    }
+    if (path.empty() && !fallback.empty()) {
+        path.emplace_back(fallback);
+    }
+    return path;
+}
+
+EvolveResult evolve_through_sink(TransactionSink& sink, std::size_t steps) {
+    EvolveResult result;
+    result.requested_steps = steps;
+    EvolutionProgram program;
+
+    for (std::size_t index = 0; index < steps; ++index) {
+        auto delta = program.step(sink.world().snapshot(), Epoch{sink.world().epoch().value + 1});
+        delta.events.push_back(TraceEvent{
+            {},
+            "evolution.step",
+            {{"step", std::to_string(index + 1)}},
+            {}
+        });
+
+        Transaction tx;
+        tx.origin = TransactionOrigin::Evolution;
+        tx.label = fmt::format("evolve step {}", index + 1);
+        tx.delta = std::move(delta);
+        tx.allow_empty = true;
+        const auto commit = sink.commit(std::move(tx));
+        result.last_law_statuses = commit.law_statuses;
+        if (commit.accepted) {
+            result.completed_steps += 1;
+        } else {
+            result.rejected_steps += 1;
+        }
+    }
+
+    return result;
+}
+
+std::string read_file(const std::string& path) {
+    std::ifstream input(path);
+    if (!input) {
+        throw std::runtime_error(fmt::format("cannot open '{}'", path));
+    }
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    return buffer.str();
+}
+
 }  // namespace
 
-ScriptEngine::ScriptEngine(World& world) : world_(world) {}
+WorldTransactionSink::WorldTransactionSink(World& world, Verifier& verifier)
+    : world_(world), verifier_(verifier) {}
+
+World& WorldTransactionSink::world() {
+    return world_;
+}
+
+const World& WorldTransactionSink::world() const {
+    return world_;
+}
+
+CommitResult WorldTransactionSink::commit(Transaction tx) {
+    auto prepared = prepare_transaction(world_, tx, verifier_);
+    return commit_prepared(world_, prepared);
+}
+
+bool WorldTransactionSink::reset_world(std::string_view name) {
+    world_.reset(std::string{name});
+    return true;
+}
+
+RepositoryTransactionSink::RepositoryTransactionSink(Repository& repository, std::string branch, Verifier& verifier)
+    : repository_(repository), branch_(std::move(branch)), verifier_(verifier) {}
+
+World& RepositoryTransactionSink::world() {
+    return repository_.mutable_world(branch_);
+}
+
+const World& RepositoryTransactionSink::world() const {
+    return repository_.world(branch_);
+}
+
+CommitResult RepositoryTransactionSink::commit(Transaction tx) {
+    auto record = repository_.commit(branch_, std::move(tx), verifier_);
+    if (!record.has_value()) {
+        throw std::runtime_error("repository rejected commit before verification");
+    }
+    return result_from_record(*record);
+}
+
+bool RepositoryTransactionSink::reset_world(std::string_view name) {
+    const auto& current = repository_.world(branch_);
+    return current.epoch().value == 0 && current.objects().empty() && current.name() == name;
+}
+
+ScriptEngine::ScriptEngine(World& world)
+    : domains_(DomainRegistry::with_builtins()),
+      sink_(std::make_unique<WorldTransactionSink>(world, verifier_)) {}
+
+ScriptEngine::ScriptEngine(Repository& repository, std::string branch)
+    : domains_(DomainRegistry::with_builtins()),
+      sink_(std::make_unique<RepositoryTransactionSink>(repository, std::move(branch), verifier_)) {}
 
 bool ScriptEngine::run_stream(std::istream& input, std::ostream& output, bool interactive) {
     bool ok = true;
@@ -130,9 +263,21 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
         std::istringstream stream(line);
         std::string command;
         stream >> command;
+        auto& world = sink_->world();
+
+        if (is_rule_command(command)) {
+            const auto completed = rule_builder_.consume_line(line);
+            if (completed.has_value()) {
+                rule_engine_.add(*completed);
+                output << fmt::format("=> rule {} defined\n", completed->name);
+            } else if (command == "rule") {
+                output << fmt::format("=> rule {} started\n", rule_builder_.name());
+            }
+            return true;
+        }
 
         if (command == "help") {
-            output << "=> commands: world new, object, link, morphism, compose, law add, evolve, inspect, trace export\n";
+            output << "=> commands: world new, domain use, domain load, rule, object, link, morphism, compose, apply, law add, evolve, inspect, trace export\n";
             return true;
         }
 
@@ -143,11 +288,44 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             if (subcommand != "new" || name.empty()) {
                 throw std::invalid_argument("usage: world new NAME");
             }
-            world_.reset(name);
+            if (!sink_->reset_world(name)) {
+                throw std::invalid_argument("world new cannot reset a persistent branch after initialization");
+            }
             verifier_ = Verifier{};
+            rule_engine_ = RuleEngine{};
+            rule_builder_.reset();
             morphisms_.clear();
             output << fmt::format("=> world {} epoch=0\n", name);
             return true;
+        }
+
+        if (command == "domain") {
+            std::string subcommand;
+            std::string name_or_path;
+            stream >> subcommand >> name_or_path;
+            if (subcommand == "use" && !name_or_path.empty()) {
+                const auto package = domains_.find(name_or_path);
+                if (!package.has_value()) {
+                    throw std::invalid_argument(fmt::format("unknown domain '{}'", name_or_path));
+                }
+                install_domain_schema(world, *package);
+                rule_engine_.add_all(package->rules);
+                output << fmt::format(
+                    "=> domain {} loaded types={} relations={} rules={}\n",
+                    package->name,
+                    package->schema.object_types.size(),
+                    package->schema.relations.size(),
+                    package->rules.size());
+                return true;
+            }
+            if (subcommand == "load" && !name_or_path.empty()) {
+                const auto rules = parse_rules(read_file(name_or_path));
+                const auto count = rules.size();
+                rule_engine_.add_all(rules);
+                output << fmt::format("=> domain file {} loaded rules={}\n", name_or_path, count);
+                return true;
+            }
+            throw std::invalid_argument("usage: domain use NAME | domain load PATH");
         }
 
         if (command == "object") {
@@ -158,7 +336,12 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             if (name.empty() || colon != ":" || type.empty()) {
                 throw std::invalid_argument("usage: object NAME : TYPE");
             }
-            const auto result = world_.commit(world_.object_delta(name, type), verifier_);
+
+            Transaction tx;
+            tx.origin = TransactionOrigin::Script;
+            tx.label = fmt::format("object {} : {}", name, type);
+            tx.delta = world.object_delta(name, type);
+            const auto result = sink_->commit(std::move(tx));
             if (!print_commit(output, result)) {
                 return false;
             }
@@ -178,14 +361,17 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             }
             const auto options = parse_options(stream);
             const auto role = causal_role_from_string(string_option(options, "role", string_option(options, "causal_role", "Structural")));
-            const auto result = world_.commit(
-                world_.link_delta(
-                    world_.object_by_name(from),
-                    world_.object_by_name(to),
-                    relation,
-                    double_option(options, "weight", 1.0),
-                    role),
-                verifier_);
+
+            Transaction tx;
+            tx.origin = TransactionOrigin::Script;
+            tx.label = fmt::format("link {} -> {} : {}", from, to, relation);
+            tx.delta = world.link_delta(
+                world.object_by_name(from),
+                world.object_by_name(to),
+                relation,
+                double_option(options, "weight", 1.0),
+                role);
+            const auto result = sink_->commit(std::move(tx));
             if (!print_commit(output, result)) {
                 return false;
             }
@@ -211,7 +397,7 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
 
             auto morphism = std::make_shared<DefinedMorphism>(
                 name,
-                MorphismSignature{world_.type_id(from_type), world_.type_id(to_type)});
+                MorphismSignature{world.type_id(from_type), world.type_id(to_type)});
             morphisms_[name] = morphism;
             output << fmt::format("=> morphism {} : {} -> {}\n", name, from_type, to_type);
             return true;
@@ -235,7 +421,69 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
                 output << fmt::format("=> invalid: {}\n", to_string(result.error()));
                 return false;
             }
+            morphisms_[std::string{(*result)->name()}] = *result;
             output << fmt::format("=> valid morphism: {}\n", (*result)->name());
+            return true;
+        }
+
+        if (command == "apply") {
+            std::string first;
+            stream >> first;
+            if (first.empty()) {
+                throw std::invalid_argument("usage: apply MORPHISM OBJECT | apply composed OUTER after INNER OBJECT");
+            }
+
+            std::shared_ptr<const Morphism> morphism;
+            std::string label_name;
+            std::string object_name;
+            if (first == "composed") {
+                std::string outer;
+                std::string op;
+                std::string inner;
+                stream >> outer >> op >> inner >> object_name;
+                if (outer.empty() || inner.empty() || object_name.empty() || (op != "after" && op != "o")) {
+                    throw std::invalid_argument("usage: apply composed OUTER after INNER OBJECT");
+                }
+                const auto g = morphisms_.find(outer);
+                const auto f = morphisms_.find(inner);
+                if (g == morphisms_.end() || f == morphisms_.end()) {
+                    throw std::invalid_argument("apply composed references an unknown morphism");
+                }
+                auto composed = compose(g->second, f->second);
+                if (!composed) {
+                    output << fmt::format("=> invalid: {}\n", to_string(composed.error()));
+                    return false;
+                }
+                morphism = *composed;
+                label_name = fmt::format("{} after {}", outer, inner);
+            } else {
+                stream >> object_name;
+                const auto iter = morphisms_.find(first);
+                if (iter == morphisms_.end()) {
+                    throw std::invalid_argument("apply references an unknown morphism");
+                }
+                if (object_name.empty()) {
+                    throw std::invalid_argument("usage: apply MORPHISM OBJECT");
+                }
+                morphism = iter->second;
+                label_name = first;
+            }
+
+            const Selection selection{{world.object_by_name(object_name)}, {}};
+            auto delta = morphism->apply(world.snapshot(), selection);
+            const auto path = morphism_path_from_events(delta.events, label_name);
+
+            Transaction tx;
+            tx.origin = TransactionOrigin::Morphism;
+            tx.label = fmt::format("apply {} to {}", label_name, object_name);
+            tx.delta = std::move(delta);
+            tx.morphism_path = path;
+            tx.allow_empty = true;
+            const auto result = sink_->commit(std::move(tx));
+            if (!print_commit(output, result)) {
+                return false;
+            }
+            output << fmt::format("=> applied {} to {}\n", label_name, object_name);
             return true;
         }
 
@@ -247,8 +495,19 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
                 throw std::invalid_argument("usage: law add NAME [tolerance=1e-9]");
             }
             const auto options = parse_options(stream);
-            verifier_.add_builtin(name, double_option(options, "tolerance", 1e-9));
+            if (rule_engine_.contains(name)) {
+                verifier_.add(rule_engine_.make_law(name));
+            } else {
+                verifier_.add_builtin(name, double_option(options, "tolerance", 1e-9));
+            }
             output << fmt::format("=> law {} registered\n", name);
+
+            Delta empty;
+            const auto snapshot = world.snapshot();
+            const auto validation = verifier_.check(LawCheckContext{snapshot, empty, snapshot});
+            if (!validation.accepted) {
+                return print_violations(output, validation.violations);
+            }
             return true;
         }
 
@@ -258,11 +517,11 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             if (steps == 0) {
                 throw std::invalid_argument("usage: evolve STEPS");
             }
-            const auto result = world_.evolve(steps, verifier_);
+            const auto result = evolve_through_sink(*sink_, steps);
             output << fmt::format(
                 "=> evolved {} step(s); epoch={}; rejected={}\n",
                 result.completed_steps,
-                world_.epoch().value,
+                world.epoch().value,
                 result.rejected_steps);
             for (const auto& status : result.last_law_statuses) {
                 output << fmt::format(
@@ -279,7 +538,7 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             stream >> what;
             const Observer observer{"lab"};
             if (what == "graph") {
-                output << observer.inspect_graph(world_.snapshot()).body;
+                output << observer.inspect_graph(world.snapshot()).body;
                 return true;
             }
             if (what == "object") {
@@ -288,7 +547,7 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
                 if (name.empty()) {
                     throw std::invalid_argument("usage: inspect object NAME");
                 }
-                output << observer.inspect_object(world_.snapshot(), name).body << '\n';
+                output << observer.inspect_object(world.snapshot(), name).body << '\n';
                 return true;
             }
             throw std::invalid_argument("usage: inspect graph | inspect object NAME");
@@ -305,7 +564,7 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             if (!file) {
                 throw std::runtime_error(fmt::format("cannot write trace '{}'", path));
             }
-            file << world_.trace().to_jsonl();
+            file << world.trace().to_jsonl();
             output << fmt::format("=> trace exported: {}\n", path);
             return true;
         }
