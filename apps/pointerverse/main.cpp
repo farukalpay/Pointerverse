@@ -16,6 +16,8 @@
 #include "pv/hash/canonical.hpp"
 #include "pv/runtime/replayer.hpp"
 #include "pv/runtime/world_store.hpp"
+#include "pv/storage/integrity.hpp"
+#include "pv/storage/repository.hpp"
 #include "pv/trace/replayer.hpp"
 
 namespace {
@@ -110,6 +112,26 @@ void print_runtime_replay_report(const pv::RuntimeReplayResult& result, std::str
     }
 }
 
+void print_integrity_report(const pv::IntegrityReport& report) {
+    std::cout << "Repository integrity\n";
+    std::cout << "--------------------\n";
+    std::cout << fmt::format("objects checked:    {}\n", report.objects_checked);
+    std::cout << fmt::format("commits checked:    {}\n", report.commits_checked);
+    std::cout << fmt::format("snapshots checked:  {}\n", report.snapshots_checked);
+    std::cout << fmt::format("branch refs:        {}\n", report.branch_refs_checked);
+    std::cout << fmt::format("status:             {}\n", report.clean() ? "clean" : "errors");
+    for (const auto& error : report.errors) {
+        std::cout << fmt::format("error: {}\n", error.message);
+    }
+    for (const auto& warning : report.warnings) {
+        std::cout << fmt::format("warning: {}\n", warning.message);
+    }
+}
+
+std::string short_hash(pv::CommitId id) {
+    return pv::to_hex(id.value).substr(0, 12);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -122,6 +144,16 @@ int main(int argc, char** argv) {
     std::string expected_hash;
     std::size_t expected_commits = 0;
     std::string expected_branch = "main";
+    std::string repo_path = ".pvstore";
+    std::string repo_init_path = ".pvstore";
+    std::string repo_trace_path;
+    std::string repo_branch = "";
+    std::string repo_source_branch;
+    std::string repo_new_branch;
+    std::string repo_left_branch;
+    std::string repo_right_branch;
+    std::string repo_checkout_branch;
+    std::string repo_history_branch;
 
     auto* lab = app.add_subcommand("lab", "Run a Pointerverse script");
     lab->add_option("script", script_path, "Path to a .pv script")->required();
@@ -137,6 +169,38 @@ int main(int argc, char** argv) {
     trace_verify->add_option("--expect-hash", expected_hash, "Expected final hash")->required();
     auto* expect_commits_option = trace_verify->add_option("--expect-commits", expected_commits, "Expected replayed runtime commit count");
     trace_verify->add_option("--expect-branch", expected_branch, "Expected runtime branch name")->default_val("main");
+
+    auto* repo = app.add_subcommand("repo", "Persistent reality repository commands");
+    repo->require_subcommand(1);
+    repo->add_option("--store", repo_path, "Repository path")->default_val(".pvstore");
+
+    auto* repo_init = repo->add_subcommand("init", "Initialize a Pointerverse repository");
+    repo_init->add_option("path", repo_init_path, "Repository path")->default_val(".pvstore");
+
+    auto* repo_status = repo->add_subcommand("status", "Show repository status");
+
+    auto* repo_commit = repo->add_subcommand("commit", "Replay and commit a JSONL trace");
+    repo_commit->add_option("trace", repo_trace_path, "Path to a JSONL trace")->required();
+    repo_commit->add_option("--branch", repo_branch, "Branch to commit into; defaults to current branch");
+
+    auto* repo_verify = repo->add_subcommand("verify", "Verify repository integrity");
+    auto* repo_fsck = repo->add_subcommand("fsck", "Check repository integrity");
+
+    auto* repo_checkout = repo->add_subcommand("checkout", "Set current branch");
+    repo_checkout->add_option("branch", repo_checkout_branch, "Branch name")->required();
+
+    auto* repo_history = repo->add_subcommand("history", "Show branch commit history");
+    repo_history->add_option("branch", repo_history_branch, "Branch name; defaults to current branch");
+
+    auto* repo_branch_cmd = repo->add_subcommand("branch", "Branch commands");
+    repo_branch_cmd->require_subcommand(1);
+    auto* repo_branch_list = repo_branch_cmd->add_subcommand("list", "List branches");
+    auto* repo_branch_fork = repo_branch_cmd->add_subcommand("fork", "Fork a branch");
+    repo_branch_fork->add_option("source", repo_source_branch, "Source branch")->required();
+    repo_branch_fork->add_option("name", repo_new_branch, "New branch")->required();
+    auto* repo_branch_compare = repo_branch_cmd->add_subcommand("compare", "Compare two branches");
+    repo_branch_compare->add_option("left", repo_left_branch, "Left branch")->required();
+    repo_branch_compare->add_option("right", repo_right_branch, "Right branch")->required();
 
     CLI11_PARSE(app, argc, argv);
 
@@ -168,6 +232,155 @@ int main(int argc, char** argv) {
             const auto ok = result.errors.empty() && hash_ok && commits_ok && branch_ok;
             print_runtime_replay_report(result, ok ? "verified" : "hash mismatch");
             return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_init->parsed()) {
+        try {
+            auto repository = pv::Repository::init(repo_init_path);
+            std::cout << fmt::format("Initialized Pointerverse repository at {}\n", repository.root().string());
+            return EXIT_SUCCESS;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_status->parsed()) {
+        try {
+            const auto repository = pv::Repository::open(repo_path);
+            const auto status = repository.status();
+            std::cout << "Repository status\n";
+            std::cout << "-----------------\n";
+            std::cout << fmt::format("store:           {}\n", status.root.string());
+            std::cout << fmt::format("current branch:  {}\n", status.current_branch);
+            std::cout << fmt::format("branches:        {}\n", status.branches);
+            return EXIT_SUCCESS;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_commit->parsed()) {
+        try {
+            auto repository = pv::Repository::open(repo_path);
+            const auto jsonl = read_text_file(repo_trace_path);
+            const pv::Verifier verifier;
+            const auto branch = repo_branch.empty() ? repository.current_branch() : repo_branch;
+            const auto result = repository.replay_trace(branch, jsonl, verifier);
+            print_runtime_replay_report(result, result.errors.empty() ? "committed" : "errors");
+            return result.errors.empty() ? EXIT_SUCCESS : EXIT_FAILURE;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_verify->parsed() || repo_fsck->parsed()) {
+        try {
+            const auto repository = pv::Repository::open(repo_path);
+            const auto report = pv::IntegrityChecker{}.check_repository(repository);
+            print_integrity_report(report);
+            return report.clean() ? EXIT_SUCCESS : EXIT_FAILURE;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_branch_list->parsed()) {
+        try {
+            const auto repository = pv::Repository::open(repo_path);
+            for (const auto& ref : repository.list_branches()) {
+                std::cout << fmt::format("{} epoch {} commit {} snapshot {}\n",
+                    ref.name,
+                    ref.epoch.value,
+                    short_hash(ref.head),
+                    pv::to_hex(ref.snapshot).substr(0, 12));
+            }
+            return EXIT_SUCCESS;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_branch_fork->parsed()) {
+        try {
+            auto repository = pv::Repository::open(repo_path);
+            const auto result = repository.fork(repo_source_branch, repo_new_branch);
+            std::cout << fmt::format(
+                "Forked {} from {} at {}\n",
+                repo_new_branch,
+                repo_source_branch,
+                short_hash(result.base_commit));
+            return EXIT_SUCCESS;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_branch_compare->parsed()) {
+        try {
+            const auto repository = pv::Repository::open(repo_path);
+            const auto analysis = repository.analyze_merge(repo_left_branch, repo_right_branch);
+            std::cout << fmt::format(
+                "common ancestor: {}\n",
+                analysis.common_ancestor.has_value() ? short_hash(*analysis.common_ancestor) : "none");
+            std::cout << fmt::format("status: {}\n", pv::to_string(analysis.status));
+            if (!analysis.object_conflicts.empty()) {
+                std::cout << "\nobject conflicts:\n";
+                for (const auto& conflict : analysis.object_conflicts) {
+                    std::cout << fmt::format("  {}: {}\n", conflict.name, conflict.reason);
+                }
+            }
+            if (!analysis.law_drifts.empty()) {
+                std::cout << "\nlaw drift:\n";
+                for (const auto& drift : analysis.law_drifts) {
+                    std::cout << fmt::format("  left:  {}\n", pv::to_hex(drift.left_law_hash));
+                    std::cout << fmt::format("  right: {}\n", pv::to_hex(drift.right_law_hash));
+                }
+            }
+            return analysis.status == pv::MergeStatus::Clean ? EXIT_SUCCESS : EXIT_FAILURE;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_checkout->parsed()) {
+        try {
+            auto repository = pv::Repository::open(repo_path);
+            repository.checkout(repo_checkout_branch);
+            std::cout << fmt::format("Checked out {}\n", repo_checkout_branch);
+            return EXIT_SUCCESS;
+        } catch (const std::exception& error) {
+            std::cerr << fmt::format("error: {}\n", error.what());
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (repo_history->parsed()) {
+        try {
+            const auto repository = pv::Repository::open(repo_path);
+            const auto branch = repo_history_branch.empty() ? repository.current_branch() : repo_history_branch;
+            std::cout << branch << "\n";
+            std::cout << std::string(branch.size(), '-') << "\n";
+            for (const auto& record : repository.history(branch)) {
+                std::cout << fmt::format(
+                    "{}  {:<20} epoch {}   snapshot {}   delta {}\n",
+                    short_hash(record.id),
+                    record.label.empty() ? "(unlabeled)" : record.label,
+                    record.after_epoch.value,
+                    pv::to_hex(record.after_hash).substr(0, 12),
+                    pv::to_hex(record.delta_hash).substr(0, 12));
+            }
+            return EXIT_SUCCESS;
         } catch (const std::exception& error) {
             std::cerr << fmt::format("error: {}\n", error.what());
             return EXIT_FAILURE;

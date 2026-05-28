@@ -40,6 +40,7 @@ public:
     [[nodiscard]] std::size_t size() const noexcept;
     void set_existence(ObjectId id, ExistenceState state);
     void set_type(ObjectId id, TypeId type);
+    void restore(std::vector<Object> objects);
 
 private:
     std::vector<Object> objects_;

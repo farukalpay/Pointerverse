@@ -58,6 +58,26 @@ const std::vector<std::string>& RelationRegistry::names() const noexcept {
     return names_;
 }
 
+void RelationRegistry::restore_names(const std::map<std::uint32_t, std::string>& names) {
+    ids_.clear();
+    names_.clear();
+
+    std::uint32_t max_id = 0;
+    for (const auto& [id, _] : names) {
+        max_id = std::max(max_id, id);
+    }
+    names_.resize(max_id);
+    for (const auto& [id, name] : names) {
+        if (id == 0) {
+            continue;
+        }
+        names_[id - 1] = name;
+        if (!name.empty()) {
+            ids_.emplace(name, RelationType{id});
+        }
+    }
+}
+
 std::string to_string(RelationType relation) {
     return relation.valid() ? fmt::format("R{}", relation.id) : "R<invalid>";
 }

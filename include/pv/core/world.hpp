@@ -69,6 +69,8 @@ class World {
 public:
     explicit World(std::string name = "world", WorldId id = WorldId{1});
 
+    [[nodiscard]] static World from_snapshot(const WorldSnapshot& snapshot);
+
     void reset(std::string name, WorldId id = WorldId{1});
 
     [[nodiscard]] WorldId id() const noexcept;

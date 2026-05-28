@@ -64,6 +64,10 @@ void ObjectArena::set_type(ObjectId id, TypeId type) {
     get(id).type = type;
 }
 
+void ObjectArena::restore(std::vector<Object> objects) {
+    objects_ = std::move(objects);
+}
+
 std::string to_string(ExistenceState state) {
     switch (state) {
     case ExistenceState::Alive:

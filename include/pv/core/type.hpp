@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <map>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -25,6 +26,7 @@ public:
     [[nodiscard]] const std::string& name(TypeId id) const;
     [[nodiscard]] std::size_t size() const noexcept;
     [[nodiscard]] const std::vector<std::string>& names() const noexcept;
+    void restore_names(const std::map<std::uint32_t, std::string>& names);
 
 private:
     std::unordered_map<std::string, TypeId> ids_;

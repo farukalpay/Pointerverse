@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -35,6 +36,7 @@ public:
     [[nodiscard]] const std::string& name(RelationType type) const;
     [[nodiscard]] std::size_t size() const noexcept;
     [[nodiscard]] const std::vector<std::string>& names() const noexcept;
+    void restore_names(const std::map<std::uint32_t, std::string>& names);
 
 private:
     std::unordered_map<std::string, RelationType> ids_;

@@ -130,3 +130,41 @@ TEST_CASE("CLI replay with same commands yields deterministic hash") {
     REQUIRE(right_engine.run_stream(right_input, right_output));
     REQUIRE(left.hash() == right.hash());
 }
+
+TEST_CASE("CLI repo commands persist replayed trace and verify fsck") {
+    const auto repo_dir = std::filesystem::temp_directory_path() / "pointerverse_cli_repo";
+    std::filesystem::remove_all(repo_dir);
+    std::filesystem::create_directories(repo_dir);
+
+    const auto trace_path = repo_dir / "repo_trace.jsonl";
+    const auto report_path = repo_dir / "repo_report.txt";
+
+    World world;
+    cli::ScriptEngine engine{world};
+    std::ostringstream output;
+    std::istringstream input{
+        "world new seed\n"
+        "object A : Node\n"
+        "object B : Node\n"
+        "link A -> B : causes weight=0.7\n"
+        "evolve 1\n"
+        "trace export " + trace_path.string() + "\n"
+    };
+    REQUIRE(engine.run_stream(input, output));
+
+    const auto command =
+        "cd " + shell_quote(repo_dir)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo init .pvstore > " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo commit " + shell_quote(trace_path) + " >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo branch list >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo history main >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo fsck >> " + shell_quote(report_path);
+
+    REQUIRE(std::system(command.c_str()) == 0);
+    const auto report = read_file(report_path);
+    REQUIRE(report.find("main epoch") != std::string::npos);
+    REQUIRE(report.find("replay epoch") != std::string::npos);
+    REQUIRE(report.find("status:             clean") != std::string::npos);
+
+    std::filesystem::remove_all(repo_dir);
+}

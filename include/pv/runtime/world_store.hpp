@@ -3,6 +3,7 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "pv/core/world.hpp"
@@ -19,6 +20,12 @@ namespace pv {
 class WorldStore {
 public:
     [[nodiscard]] BranchId create_branch(std::string name, World initial);
+    [[nodiscard]] BranchId restore_branch(
+        BranchId id,
+        std::string name,
+        World head_world,
+        std::vector<CommitRecord> history,
+        std::vector<std::pair<CommitId, WorldSnapshot>> snapshots);
     [[nodiscard]] BranchId fork_branch(BranchId source, std::string new_name);
     [[nodiscard]] ForkResult fork(BranchId source, std::string new_name);
 

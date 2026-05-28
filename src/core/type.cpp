@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "pv/core/type.hpp"
 
+#include <algorithm>
 #include <fmt/format.h>
 #include <stdexcept>
 
@@ -43,6 +44,26 @@ std::size_t TypeRegistry::size() const noexcept {
 
 const std::vector<std::string>& TypeRegistry::names() const noexcept {
     return names_;
+}
+
+void TypeRegistry::restore_names(const std::map<std::uint32_t, std::string>& names) {
+    ids_.clear();
+    names_.clear();
+
+    std::uint32_t max_id = 0;
+    for (const auto& [id, _] : names) {
+        max_id = std::max(max_id, id);
+    }
+    names_.resize(max_id);
+    for (const auto& [id, name] : names) {
+        if (id == 0) {
+            continue;
+        }
+        names_[id - 1] = name;
+        if (!name.empty()) {
+            ids_.emplace(name, TypeId{id});
+        }
+    }
 }
 
 std::string to_string(TypeId id) {

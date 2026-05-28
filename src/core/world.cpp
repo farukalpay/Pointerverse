@@ -58,6 +58,50 @@ World::World(std::string name, WorldId id) : id_(id), name_(std::move(name)) {
     }
 }
 
+World World::from_snapshot(const WorldSnapshot& snapshot) {
+    World world{snapshot.world_name, snapshot.world};
+    world.epoch_ = snapshot.epoch;
+    world.types_.restore_names(snapshot.type_names);
+    world.relations_.restore_names(snapshot.relation_names);
+
+    std::vector<Object> objects;
+    objects.reserve(snapshot.objects.size());
+    for (const auto& object_snapshot : snapshot.objects) {
+        Object object;
+        object.id = object_snapshot.id;
+        object.name = object_snapshot.name;
+        object.type = object_snapshot.type;
+        object.existence = object_snapshot.existence;
+        objects.push_back(object);
+        world.object_names_.emplace(object.name, object.id);
+    }
+    std::ranges::sort(objects, [](const Object& left, const Object& right) {
+        if (left.id.index != right.id.index) {
+            return left.id.index < right.id.index;
+        }
+        return left.id.generation < right.id.generation;
+    });
+    world.objects_.restore(std::move(objects));
+
+    world.next_pointer_id_ = 1;
+    world.pointers_.reserve(snapshot.pointers.size());
+    for (const auto& pointer_snapshot : snapshot.pointers) {
+        PointerEdge edge;
+        edge.id = pointer_snapshot.id;
+        edge.from = pointer_snapshot.from;
+        edge.to = pointer_snapshot.to;
+        edge.relation = pointer_snapshot.relation;
+        edge.causal_role = pointer_snapshot.causal_role;
+        edge.weight = pointer_snapshot.weight;
+        edge.born_at = pointer_snapshot.born_at;
+        edge.expires_at = pointer_snapshot.expires_at;
+        edge.law_domain = pointer_snapshot.law_domain;
+        world.next_pointer_id_ = std::max(world.next_pointer_id_, edge.id.value + 1);
+        world.pointers_.push_back(std::move(edge));
+    }
+    return world;
+}
+
 void World::reset(std::string name, WorldId id) {
     *this = World{std::move(name), id};
 }

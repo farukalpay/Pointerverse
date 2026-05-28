@@ -18,6 +18,25 @@ void write_big_endian(std::vector<std::byte>& bytes, std::uint64_t value, std::s
 
 }  // namespace
 
+Hash256 sha256(std::span<const std::byte> bytes) {
+    Hash256 out;
+    unsigned int length = 0;
+    if (EVP_Digest(
+            bytes.data(),
+            bytes.size(),
+            reinterpret_cast<unsigned char*>(out.value.data()),
+            &length,
+            EVP_sha256(),
+            nullptr)
+        != 1) {
+        throw std::runtime_error("OpenSSL SHA-256 digest failed");
+    }
+    if (length != out.value.size()) {
+        throw std::runtime_error("OpenSSL SHA-256 produced an unexpected digest length");
+    }
+    return out;
+}
+
 void CanonicalHasher::write_u8(std::uint8_t value) {
     bytes_.push_back(static_cast<std::byte>(value));
 }
@@ -54,22 +73,7 @@ void CanonicalHasher::write_bytes(std::span<const std::byte> bytes) {
 }
 
 Hash256 CanonicalHasher::finish() const {
-    Hash256 out;
-    unsigned int length = 0;
-    if (EVP_Digest(
-            bytes_.data(),
-            bytes_.size(),
-            reinterpret_cast<unsigned char*>(out.value.data()),
-            &length,
-            EVP_sha256(),
-            nullptr)
-        != 1) {
-        throw std::runtime_error("OpenSSL SHA-256 digest failed");
-    }
-    if (length != out.value.size()) {
-        throw std::runtime_error("OpenSSL SHA-256 produced an unexpected digest length");
-    }
-    return out;
+    return sha256(bytes_);
 }
 
 }  // namespace pv

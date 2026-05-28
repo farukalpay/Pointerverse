@@ -11,6 +11,8 @@
 
 namespace pv {
 
+[[nodiscard]] Hash256 sha256(std::span<const std::byte> bytes);
+
 class CanonicalHasher {
 public:
     void write_u8(std::uint8_t value);

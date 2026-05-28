@@ -35,6 +35,13 @@ cmake --build build
 ./build/pointerverse repl
 ./build/pointerverse trace replay trace.jsonl
 ./build/pointerverse trace verify trace.jsonl --expect-hash 0x9f12a77103beaa20
+./build/pointerverse repo init .pvstore
+./build/pointerverse repo commit trace.jsonl
+./build/pointerverse repo branch list
+./build/pointerverse repo branch fork main experiment/a
+./build/pointerverse repo branch compare main experiment/a
+./build/pointerverse repo history main
+./build/pointerverse repo fsck
 ```
 
 ## DSL sample

@@ -35,6 +35,14 @@ add_library(pointerverse_core
     src/runtime/snapshot_store.cpp
     src/runtime/transaction.cpp
     src/runtime/world_store.cpp
+    src/storage/canonical_codec.cpp
+    src/storage/content_store.cpp
+    src/storage/integrity.cpp
+    src/storage/manifest.cpp
+    src/storage/object_codec.cpp
+    src/storage/ref_store.cpp
+    src/storage/repository.cpp
+    src/storage/wal.cpp
     src/trace/recorder.cpp
     src/trace/replayer.cpp
 )
@@ -81,6 +89,11 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/law/law_tests.cpp
         tests/runtime/branch_tests.cpp
         tests/runtime/transaction_tests.cpp
+        tests/storage/codec_tests.cpp
+        tests/storage/content_store_tests.cpp
+        tests/storage/integrity_tests.cpp
+        tests/storage/repository_tests.cpp
+        tests/storage/wal_tests.cpp
         tests/trace/replay_tests.cpp
     )
     target_link_libraries(pointerverse_tests

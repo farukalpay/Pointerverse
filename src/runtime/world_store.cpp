@@ -3,6 +3,7 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace pv {
@@ -87,6 +88,76 @@ BranchId WorldStore::create_branch(std::string name, World initial) {
     state.world = std::move(initial);
     state.history.push_back(std::move(genesis));
     branches_.push_back(std::move(state));
+    return id;
+}
+
+BranchId WorldStore::restore_branch(
+    BranchId id,
+    std::string name,
+    World head_world,
+    std::vector<CommitRecord> history,
+    std::vector<std::pair<CommitId, WorldSnapshot>> snapshot_values) {
+    if (!id.valid()) {
+        throw std::invalid_argument("branch id must be valid");
+    }
+    if (name.empty()) {
+        throw std::invalid_argument("branch name cannot be empty");
+    }
+    if (find_branch(name).has_value()) {
+        throw std::invalid_argument(fmt::format("branch '{}' already exists", name));
+    }
+
+    std::vector<std::pair<Hash256, SnapshotId>> snapshot_ids;
+    snapshot_ids.reserve(snapshot_values.size());
+    for (auto& [commit, snapshot] : snapshot_values) {
+        const auto hash = snapshot.canonical_hash();
+        const auto id_for_snapshot = snapshots_.put(std::move(snapshot));
+        snapshots_.bind_commit(commit, id_for_snapshot);
+        snapshot_ids.push_back({hash, id_for_snapshot});
+    }
+
+    auto snapshot_for_hash = [&](Hash256 hash) -> SnapshotId {
+        for (const auto& [candidate_hash, snapshot] : snapshot_ids) {
+            if (candidate_hash == hash) {
+                return snapshot;
+            }
+        }
+        return SnapshotId{};
+    };
+
+    std::optional<CommitId> head;
+    SnapshotId head_snapshot;
+    Epoch branch_epoch = head_world.epoch();
+    for (auto& record : history) {
+        if (const auto before = snapshot_for_hash(record.before_hash); before.valid()) {
+            record.before_snapshot = before;
+        }
+        if (const auto after = snapshot_for_hash(record.after_hash); after.valid()) {
+            record.after_snapshot = after;
+        }
+        if (record.accepted) {
+            graph_.add_node(CommitNode{record.id, record.parents, {}, id, record.after_snapshot});
+            head = record.id;
+            head_snapshot = record.after_snapshot;
+            branch_epoch = record.after_epoch;
+        }
+        next_transaction_id_ = std::max(next_transaction_id_, record.transaction.value + 1);
+    }
+
+    Branch branch;
+    branch.id = id;
+    branch.name = std::move(name);
+    branch.world = head_world.id();
+    branch.epoch = branch_epoch;
+    branch.head = head;
+    branch.head_snapshot = head_snapshot;
+
+    BranchState state;
+    state.branch = std::move(branch);
+    state.world = std::move(head_world);
+    state.history = std::move(history);
+    branches_.push_back(std::move(state));
+    next_branch_id_ = std::max(next_branch_id_, id.value + 1);
     return id;
 }
 
