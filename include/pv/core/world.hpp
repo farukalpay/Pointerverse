@@ -11,7 +11,9 @@
 
 #include "pv/core/delta.hpp"
 #include "pv/core/snapshot.hpp"
+#include "pv/core/world_index.hpp"
 #include "pv/hash/canonical.hpp"
+#include "pv/kernel/proof.hpp"
 #include "pv/law/verifier.hpp"
 #include "pv/trace/recorder.hpp"
 
@@ -30,6 +32,11 @@ struct CommitResult {
     std::vector<LawViolation> violations;
     std::vector<TraceEvent> events;
     std::uint64_t world_hash{0};
+    Hash256 execution_plan_hash;
+    Hash256 read_set_hash;
+    Hash256 write_set_hash;
+    Hash256 proof_hash;
+    std::optional<CommitProof> proof;
 };
 
 [[nodiscard]] PreparedTransaction prepare_transaction(const World& world, const Transaction& tx, const Verifier& verifier);
@@ -98,6 +105,7 @@ public:
     [[nodiscard]] const PointerEdge& pointer(PointerId id) const;
     [[nodiscard]] const std::vector<Object>& objects() const noexcept;
     [[nodiscard]] const std::vector<PointerEdge>& pointers() const noexcept;
+    [[nodiscard]] const WorldIndex& index() const noexcept;
     [[nodiscard]] const TraceRecorder& trace() const noexcept;
     [[nodiscard]] Hash256 canonical_hash() const;
     [[nodiscard]] std::uint64_t hash() const;
@@ -110,6 +118,7 @@ private:
     [[nodiscard]] std::vector<TraceEvent> apply_delta_unchecked(const Delta& delta);
     [[nodiscard]] std::vector<TraceEvent> preview_delta_unchecked(const Delta& delta) const;
     [[nodiscard]] std::optional<std::size_t> pointer_index(PointerId id) const noexcept;
+    void rebuild_index();
     std::vector<TraceEvent> append_rejection_trace(
         const Delta& delta,
         const std::string& reason,
@@ -123,6 +132,7 @@ private:
     ObjectArena objects_;
     std::unordered_map<std::string, ObjectId> object_names_;
     std::vector<PointerEdge> pointers_;
+    WorldIndex index_;
     TraceRecorder trace_;
     std::uint64_t next_pointer_id_{1};
 };

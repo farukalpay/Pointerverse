@@ -6,9 +6,14 @@
 #include <vector>
 
 #include "pv/core/delta.hpp"
+#include "pv/core/fact.hpp"
 #include "pv/core/snapshot.hpp"
 
 namespace pv {
+
+struct ExecutionPlan;
+class FactStore;
+class WorldIndex;
 
 using LawId = std::string;
 
@@ -23,6 +28,11 @@ struct LawCheckContext {
     const WorldSnapshot& before;
     const Delta& delta;
     const WorldSnapshot& after;
+    const ExecutionPlan* plan{nullptr};
+    const WorldIndex* before_index{nullptr};
+    const WorldIndex* after_index{nullptr};
+    const FactStore* before_facts{nullptr};
+    const FactStore* after_facts{nullptr};
 };
 
 struct LawViolation {
@@ -30,6 +40,9 @@ struct LawViolation {
     Severity severity{Severity::Error};
     double magnitude{0.0};
     std::string explanation;
+    std::vector<FactId> evidence;
+    std::vector<ObjectId> objects;
+    std::vector<PointerId> pointers;
 };
 
 struct LawStatus {

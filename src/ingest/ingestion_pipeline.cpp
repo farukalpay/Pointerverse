@@ -35,7 +35,7 @@ ObjectRef object_ref(
 
     const auto temp = TempObjectId{next_temp++};
     temps.emplace(name, temp);
-    delta.creates.push_back(ObjectCreate{temp, name, world.type_id(type), ExistenceState::Alive});
+    delta.append_create(ObjectCreate{temp, name, world.type_id(type), ExistenceState::Alive, {}});
     return ObjectRef{temp};
 }
 
@@ -49,23 +49,25 @@ Transaction transaction_for(World& world, const NormalizedAuditEvent& event) {
     const auto evidence_name = "Evidence/" + event.source + "/" + event.evidence_id;
     const auto evidence = object_ref(world, delta, temps, next_temp, evidence_name, "Evidence");
 
-    delta.links.push_back(PointerCreate{
+    delta.append_link(PointerCreate{
         from,
         to,
         world.relation_type(event.relation),
         CausalRole::Structural,
         Weight{1.0},
-        "agent_audit"
+        "agent_audit",
+        {}
     });
-    delta.links.push_back(PointerCreate{
+    delta.append_link(PointerCreate{
         evidence,
         to,
         world.relation_type("backs"),
         CausalRole::Observational,
         Weight{1.0},
-        "agent_audit"
+        "agent_audit",
+        {}
     });
-    delta.events.push_back(TraceEvent{
+    delta.append_event(TraceEvent{
         {},
         "evidence.ingest",
         {

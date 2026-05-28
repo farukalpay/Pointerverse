@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "pv/storage/object_codec.hpp"
 
+#include <stdexcept>
+
 namespace pv {
 
 StoredCommit make_stored_commit(const CommitRecord& record) {
@@ -17,7 +19,7 @@ StoredCommit make_stored_commit(const CommitRecord& record) {
 }
 
 void encode(CanonicalWriter& writer, const StoredCommit& commit) {
-    writer.string("StoredCommit:v1");
+    writer.string("StoredCommit:v2");
     encode_commit_record_body(writer, commit.record);
     writer.hash(commit.before_snapshot_object);
     writer.hash(commit.after_snapshot_object);
@@ -29,8 +31,13 @@ void encode(CanonicalWriter& writer, const StoredCommit& commit) {
 }
 
 StoredCommit decode_stored_commit(CanonicalReader& reader) {
-    reader.expect_tag("StoredCommit:v1");
-    auto record = decode_commit_record_body(reader);
+    const auto tag = reader.string();
+    if (tag != "StoredCommit:v1" && tag != "StoredCommit:v2") {
+        throw std::runtime_error("canonical stream has unexpected type tag");
+    }
+    auto record = tag == "StoredCommit:v1"
+        ? decode_commit_record_body_v1(reader)
+        : decode_commit_record_body(reader);
     StoredCommit commit = make_stored_commit(record);
     commit.before_snapshot_object = reader.hash();
     commit.after_snapshot_object = reader.hash();

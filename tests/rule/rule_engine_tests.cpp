@@ -88,21 +88,23 @@ TEST_CASE("pattern rule supports before requirements") {
     REQUIRE(world.commit(world.object_delta("FileA", "File"), verifier).accepted);
 
     Delta same_transaction;
-    same_transaction.links.push_back(PointerCreate{
+    same_transaction.append_link(PointerCreate{
         ObjectRef{world.object_by_name("Agent0")},
         ObjectRef{world.object_by_name("FileA")},
         world.relation_type("reads"),
         CausalRole::Structural,
         Weight{1.0},
-        "core"
+        "core",
+        {}
     });
-    same_transaction.links.push_back(PointerCreate{
+    same_transaction.append_link(PointerCreate{
         ObjectRef{world.object_by_name("Agent0")},
         ObjectRef{world.object_by_name("FileA")},
         world.relation_type("modifies"),
         CausalRole::Structural,
         Weight{1.0},
-        "core"
+        "core",
+        {}
     });
     REQUIRE_FALSE(world.commit(same_transaction, verifier).accepted);
 

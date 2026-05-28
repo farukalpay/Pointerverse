@@ -8,6 +8,7 @@
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <type_traits>
 #include <variant>
 
 namespace pv {
@@ -130,25 +131,11 @@ std::optional<Epoch> decode_optional_epoch(CanonicalReader& reader) {
     return decode_epoch(reader);
 }
 
-void encode_optional_type(CanonicalWriter& writer, const std::optional<TypeId>& type) {
-    writer.u8(type.has_value() ? 1 : 0);
-    if (type.has_value()) {
-        encode_type_id(writer, *type);
-    }
-}
-
 std::optional<TypeId> decode_optional_type(CanonicalReader& reader) {
     if (reader.u8() == 0) {
         return std::nullopt;
     }
     return decode_type_id(reader);
-}
-
-void encode_optional_existence(CanonicalWriter& writer, const std::optional<ExistenceState>& existence) {
-    writer.u8(existence.has_value() ? 1 : 0);
-    if (existence.has_value()) {
-        encode_existence(writer, *existence);
-    }
 }
 
 std::optional<ExistenceState> decode_optional_existence(CanonicalReader& reader) {
@@ -387,6 +374,18 @@ void encode(CanonicalWriter& writer, const LawViolation& violation) {
     encode_severity(writer, violation.severity);
     writer.f64(violation.magnitude);
     writer.string(violation.explanation);
+    writer.u64(violation.evidence.size());
+    for (const auto& fact : violation.evidence) {
+        writer.hash(fact.value);
+    }
+    writer.u64(violation.objects.size());
+    for (const auto& object : violation.objects) {
+        encode_object_id(writer, object);
+    }
+    writer.u64(violation.pointers.size());
+    for (const auto& pointer : violation.pointers) {
+        encode_pointer_id(writer, pointer);
+    }
 }
 
 LawViolation decode_law_violation(CanonicalReader& reader) {
@@ -395,11 +394,198 @@ LawViolation decode_law_violation(CanonicalReader& reader) {
     violation.severity = decode_severity(reader);
     violation.magnitude = reader.f64();
     violation.explanation = reader.string();
+    const auto evidence_count = checked_count(reader.u64());
+    violation.evidence.reserve(static_cast<std::size_t>(evidence_count));
+    for (std::uint64_t index = 0; index < evidence_count; ++index) {
+        violation.evidence.push_back(FactId{reader.hash()});
+    }
+    const auto object_count = checked_count(reader.u64());
+    violation.objects.reserve(static_cast<std::size_t>(object_count));
+    for (std::uint64_t index = 0; index < object_count; ++index) {
+        violation.objects.push_back(decode_object_id(reader));
+    }
+    const auto pointer_count = checked_count(reader.u64());
+    violation.pointers.reserve(static_cast<std::size_t>(pointer_count));
+    for (std::uint64_t index = 0; index < pointer_count; ++index) {
+        violation.pointers.push_back(decode_pointer_id(reader));
+    }
     return violation;
 }
 
+void encode(CanonicalWriter& writer, const Value& value) {
+    writer.u8(static_cast<std::uint8_t>(value.kind));
+    switch (value.kind) {
+    case ValueKind::Null:
+        return;
+    case ValueKind::Bool:
+        writer.u8(std::get<bool>(value.data) ? 1 : 0);
+        return;
+    case ValueKind::Int64:
+        writer.i64(std::get<std::int64_t>(value.data));
+        return;
+    case ValueKind::UInt64:
+        writer.u64(std::get<std::uint64_t>(value.data));
+        return;
+    case ValueKind::Float64:
+        writer.f64(std::get<double>(value.data));
+        return;
+    case ValueKind::String:
+        writer.string(std::get<std::string>(value.data));
+        return;
+    case ValueKind::Hash:
+        writer.hash(std::get<Hash256>(value.data));
+        return;
+    case ValueKind::ObjectRef:
+        encode_object_id(writer, std::get<ObjectId>(value.data));
+        return;
+    }
+}
+
+Value decode_value(CanonicalReader& reader) {
+    const auto kind = static_cast<ValueKind>(reader.u8());
+    switch (kind) {
+    case ValueKind::Null:
+        return null_value();
+    case ValueKind::Bool:
+        return bool_value(reader.u8() != 0);
+    case ValueKind::Int64:
+        return int64_value(reader.i64());
+    case ValueKind::UInt64:
+        return uint64_value(reader.u64());
+    case ValueKind::Float64:
+        return float64_value(reader.f64());
+    case ValueKind::String:
+        return string_value(reader.string());
+    case ValueKind::Hash:
+        return hash_value(reader.hash());
+    case ValueKind::ObjectRef:
+        return object_ref_value(decode_object_id(reader));
+    }
+    throw std::runtime_error("invalid value kind in canonical stream");
+}
+
+void encode(CanonicalWriter& writer, const Attribute& attribute) {
+    writer.string(attribute.key);
+    encode(writer, attribute.value);
+}
+
+Attribute decode_attribute(CanonicalReader& reader) {
+    return Attribute{reader.string(), decode_value(reader)};
+}
+
+void encode_fact_payload(CanonicalWriter& writer, const FactPayload& payload) {
+    std::visit(
+        [&](const auto& body) {
+            using T = std::decay_t<decltype(body)>;
+            if constexpr (std::is_same_v<T, ObjectFactPayload>) {
+                writer.u8(0);
+                encode_object_id(writer, body.object);
+                writer.string(body.name);
+                encode_type_id(writer, body.type);
+                encode_existence(writer, body.existence);
+            } else if constexpr (std::is_same_v<T, PointerFactPayload>) {
+                writer.u8(1);
+                encode_pointer_id(writer, body.pointer);
+                encode_object_id(writer, body.from);
+                encode_object_id(writer, body.to);
+                encode_relation_type(writer, body.relation);
+                encode_causal_role(writer, body.causal_role);
+                writer.f64(body.weight.value);
+                encode_epoch(writer, body.born_at);
+                encode_optional_epoch(writer, body.expires_at);
+                writer.string(body.law_domain);
+            } else if constexpr (std::is_same_v<T, AttributeFactPayload>) {
+                writer.u8(2);
+                if (const auto* object = std::get_if<ObjectAttributeSubject>(&body.subject)) {
+                    writer.u8(0);
+                    encode_object_id(writer, object->object);
+                } else {
+                    writer.u8(1);
+                    encode_pointer_id(writer, std::get<PointerAttributeSubject>(body.subject).pointer);
+                }
+                writer.string(body.key);
+                encode(writer, body.value);
+            } else if constexpr (std::is_same_v<T, EvidenceFactPayload>) {
+                writer.u8(3);
+                writer.hash(body.evidence);
+                writer.string(body.label);
+            } else if constexpr (std::is_same_v<T, LawFactPayload>) {
+                writer.u8(4);
+                writer.string(body.law);
+                writer.u8(body.passed ? 1 : 0);
+                writer.hash(body.input_hash);
+                writer.hash(body.output_hash);
+            }
+        },
+        payload);
+}
+
+FactPayload decode_fact_payload(CanonicalReader& reader) {
+    const auto tag = reader.u8();
+    if (tag == 0) {
+        return ObjectFactPayload{
+            decode_object_id(reader),
+            reader.string(),
+            decode_type_id(reader),
+            decode_existence(reader)
+        };
+    }
+    if (tag == 1) {
+        return PointerFactPayload{
+            decode_pointer_id(reader),
+            decode_object_id(reader),
+            decode_object_id(reader),
+            decode_relation_type(reader),
+            decode_causal_role(reader),
+            Weight{reader.f64()},
+            decode_epoch(reader),
+            decode_optional_epoch(reader),
+            reader.string()
+        };
+    }
+    if (tag == 2) {
+        AttributeSubject subject;
+        const auto subject_tag = reader.u8();
+        if (subject_tag == 0) {
+            subject = ObjectAttributeSubject{decode_object_id(reader)};
+        } else if (subject_tag == 1) {
+            subject = PointerAttributeSubject{decode_pointer_id(reader)};
+        } else {
+            throw std::runtime_error("invalid attribute fact subject tag");
+        }
+        return AttributeFactPayload{std::move(subject), reader.string(), decode_value(reader)};
+    }
+    if (tag == 3) {
+        return EvidenceFactPayload{reader.hash(), reader.string()};
+    }
+    if (tag == 4) {
+        return LawFactPayload{reader.string(), reader.u8() != 0, reader.hash(), reader.hash()};
+    }
+    throw std::runtime_error("invalid fact payload tag");
+}
+
+void encode(CanonicalWriter& writer, const Fact& fact) {
+    writer.hash(fact.id.value);
+    writer.u8(static_cast<std::uint8_t>(fact.kind));
+    encode_epoch(writer, fact.born_at);
+    encode_optional_epoch(writer, fact.expired_at);
+    writer.hash(fact.payload_hash);
+    encode_fact_payload(writer, fact.payload);
+}
+
+Fact decode_fact(CanonicalReader& reader) {
+    Fact fact;
+    fact.id = FactId{reader.hash()};
+    fact.kind = static_cast<FactKind>(reader.u8());
+    fact.born_at = decode_epoch(reader);
+    fact.expired_at = decode_optional_epoch(reader);
+    fact.payload_hash = reader.hash();
+    fact.payload = decode_fact_payload(reader);
+    return fact;
+}
+
 void encode(CanonicalWriter& writer, const WorldSnapshot& snapshot) {
-    writer.string("WorldSnapshot:v1");
+    writer.string("WorldSnapshot:v2");
     encode_world_id(writer, snapshot.world);
     writer.string(snapshot.world_name);
     encode_epoch(writer, snapshot.epoch);
@@ -445,6 +631,12 @@ void encode(CanonicalWriter& writer, const WorldSnapshot& snapshot) {
         writer.string(object.name);
         encode_type_id(writer, object.type);
         encode_existence(writer, object.existence);
+        auto attributes = object.attributes;
+        sort_attributes(attributes);
+        writer.u64(attributes.size());
+        for (const auto& attribute : attributes) {
+            encode(writer, attribute);
+        }
         writer.u64(object.incoming_count);
         writer.u64(object.outgoing_count);
     }
@@ -464,11 +656,29 @@ void encode(CanonicalWriter& writer, const WorldSnapshot& snapshot) {
         encode_epoch(writer, pointer.born_at);
         encode_optional_epoch(writer, pointer.expires_at);
         writer.string(pointer.law_domain);
+        auto attributes = pointer.attributes;
+        sort_attributes(attributes);
+        writer.u64(attributes.size());
+        for (const auto& attribute : attributes) {
+            encode(writer, attribute);
+        }
+    }
+
+    auto facts = snapshot.facts.empty() ? derive_facts(snapshot) : snapshot.facts;
+    std::ranges::sort(facts, [](const Fact& left, const Fact& right) {
+        return left < right;
+    });
+    writer.u64(facts.size());
+    for (const auto& fact : facts) {
+        encode(writer, fact);
     }
 }
 
 WorldSnapshot decode_world_snapshot(CanonicalReader& reader) {
-    reader.expect_tag("WorldSnapshot:v1");
+    const auto tag = reader.string();
+    if (tag != "WorldSnapshot:v1" && tag != "WorldSnapshot:v2") {
+        throw std::runtime_error("canonical stream has unexpected type tag");
+    }
     WorldSnapshot snapshot;
     snapshot.world = decode_world_id(reader);
     snapshot.world_name = reader.string();
@@ -492,6 +702,13 @@ WorldSnapshot decode_world_snapshot(CanonicalReader& reader) {
         object.name = reader.string();
         object.type = decode_type_id(reader);
         object.existence = decode_existence(reader);
+        if (tag == "WorldSnapshot:v2") {
+            const auto attribute_count = checked_count(reader.u64());
+            object.attributes.reserve(static_cast<std::size_t>(attribute_count));
+            for (std::uint64_t attribute_index = 0; attribute_index < attribute_count; ++attribute_index) {
+                object.attributes.push_back(decode_attribute(reader));
+            }
+        }
         object.incoming_count = static_cast<std::size_t>(checked_count(reader.u64()));
         object.outgoing_count = static_cast<std::size_t>(checked_count(reader.u64()));
         snapshot.objects.push_back(std::move(object));
@@ -510,69 +727,204 @@ WorldSnapshot decode_world_snapshot(CanonicalReader& reader) {
         pointer.born_at = decode_epoch(reader);
         pointer.expires_at = decode_optional_epoch(reader);
         pointer.law_domain = reader.string();
+        if (tag == "WorldSnapshot:v2") {
+            const auto attribute_count = checked_count(reader.u64());
+            pointer.attributes.reserve(static_cast<std::size_t>(attribute_count));
+            for (std::uint64_t attribute_index = 0; attribute_index < attribute_count; ++attribute_index) {
+                pointer.attributes.push_back(decode_attribute(reader));
+            }
+        }
         snapshot.pointers.push_back(std::move(pointer));
+    }
+    if (tag == "WorldSnapshot:v2") {
+        const auto fact_count = checked_count(reader.u64());
+        snapshot.facts.reserve(static_cast<std::size_t>(fact_count));
+        for (std::uint64_t index = 0; index < fact_count; ++index) {
+            snapshot.facts.push_back(decode_fact(reader));
+        }
     }
     return snapshot;
 }
 
 void encode(CanonicalWriter& writer, const Delta& delta) {
-    writer.string("Delta:v1");
-
-    writer.u64(delta.creates.size());
-    for (const auto& create : delta.creates) {
-        writer.u32(create.temp_id.value);
-        writer.string(create.name);
-        encode_type_id(writer, create.type);
-        encode_existence(writer, create.existence);
-    }
-
-    writer.u64(delta.updates.size());
-    for (const auto& update : delta.updates) {
-        encode_ref(writer, update.object);
-        encode_optional_type(writer, update.type);
-        encode_optional_existence(writer, update.existence);
-    }
-
-    writer.u64(delta.links.size());
-    for (const auto& link : delta.links) {
-        encode_ref(writer, link.from);
-        encode_ref(writer, link.to);
-        encode_relation_type(writer, link.relation);
-        encode_causal_role(writer, link.causal_role);
-        writer.f64(link.weight.value);
-        writer.string(link.law_domain);
-    }
-
-    writer.u64(delta.unlinks.size());
-    for (const auto& unlink : delta.unlinks) {
-        encode_pointer_id(writer, unlink.id);
-    }
-
-    writer.u64(delta.events.size());
-    for (const auto& event : delta.events) {
-        encode(writer, event);
+    writer.string("Delta:v2");
+    writer.u64(delta.ops.size());
+    for (const auto& op : delta.ops) {
+        writer.u64(op.id.value);
+        writer.u8(static_cast<std::uint8_t>(op.kind));
+        switch (op.kind) {
+        case OperationKind::CreateObject: {
+            const auto& body = std::get<CreateObjectOp>(op.body);
+            writer.u32(body.temp_id.value);
+            writer.string(body.name);
+            encode_type_id(writer, body.type);
+            encode_existence(writer, body.existence);
+            auto attributes = body.attributes;
+            sort_attributes(attributes);
+            writer.u64(attributes.size());
+            for (const auto& attribute : attributes) {
+                encode(writer, attribute);
+            }
+            break;
+        }
+        case OperationKind::SetObjectType: {
+            const auto& body = std::get<SetObjectTypeOp>(op.body);
+            encode_ref(writer, body.object);
+            encode_type_id(writer, body.type);
+            break;
+        }
+        case OperationKind::SetObjectExistence: {
+            const auto& body = std::get<SetObjectExistenceOp>(op.body);
+            encode_ref(writer, body.object);
+            encode_existence(writer, body.existence);
+            break;
+        }
+        case OperationKind::SetObjectAttribute: {
+            const auto& body = std::get<SetObjectAttributeOp>(op.body);
+            encode_ref(writer, body.object);
+            encode(writer, body.attribute);
+            break;
+        }
+        case OperationKind::RemoveObjectAttribute: {
+            const auto& body = std::get<RemoveObjectAttributeOp>(op.body);
+            encode_ref(writer, body.object);
+            writer.string(body.key);
+            break;
+        }
+        case OperationKind::CreatePointer: {
+            const auto& body = std::get<CreatePointerOp>(op.body);
+            encode_ref(writer, body.from);
+            encode_ref(writer, body.to);
+            encode_relation_type(writer, body.relation);
+            encode_causal_role(writer, body.causal_role);
+            writer.f64(body.weight.value);
+            writer.string(body.law_domain);
+            auto attributes = body.attributes;
+            sort_attributes(attributes);
+            writer.u64(attributes.size());
+            for (const auto& attribute : attributes) {
+                encode(writer, attribute);
+            }
+            break;
+        }
+        case OperationKind::ExpirePointer: {
+            encode_pointer_id(writer, std::get<ExpirePointerOp>(op.body).id);
+            break;
+        }
+        case OperationKind::SetPointerWeight: {
+            const auto& body = std::get<SetPointerWeightOp>(op.body);
+            encode_pointer_id(writer, body.id);
+            writer.f64(body.weight.value);
+            break;
+        }
+        case OperationKind::SetPointerAttribute: {
+            const auto& body = std::get<SetPointerAttributeOp>(op.body);
+            encode_pointer_id(writer, body.id);
+            encode(writer, body.attribute);
+            break;
+        }
+        case OperationKind::RemovePointerAttribute: {
+            const auto& body = std::get<RemovePointerAttributeOp>(op.body);
+            encode_pointer_id(writer, body.id);
+            writer.string(body.key);
+            break;
+        }
+        case OperationKind::EmitEvent:
+            encode(writer, std::get<EmitEventOp>(op.body).event);
+            break;
+        }
     }
 }
 
 Delta decode_delta(CanonicalReader& reader) {
-    reader.expect_tag("Delta:v1");
+    const auto tag = reader.string();
+    if (tag != "Delta:v1" && tag != "Delta:v2") {
+        throw std::runtime_error("canonical stream has unexpected type tag");
+    }
     Delta delta;
+    if (tag == "Delta:v2") {
+        const auto op_count = checked_count(reader.u64());
+        delta.ops.reserve(static_cast<std::size_t>(op_count));
+        for (std::uint64_t index = 0; index < op_count; ++index) {
+            const auto id = OperationId{reader.u64()};
+            const auto kind = static_cast<OperationKind>(reader.u8());
+            switch (kind) {
+            case OperationKind::CreateObject: {
+                ObjectCreate body;
+                body.temp_id = TempObjectId{reader.u32()};
+                body.name = reader.string();
+                body.type = decode_type_id(reader);
+                body.existence = decode_existence(reader);
+                const auto attribute_count = checked_count(reader.u64());
+                body.attributes.reserve(static_cast<std::size_t>(attribute_count));
+                for (std::uint64_t attribute = 0; attribute < attribute_count; ++attribute) {
+                    body.attributes.push_back(decode_attribute(reader));
+                }
+                delta.append(make_operation(kind, std::move(body), id));
+                break;
+            }
+            case OperationKind::SetObjectType:
+                delta.append(make_operation(kind, SetObjectTypeOp{decode_ref(reader), decode_type_id(reader)}, id));
+                break;
+            case OperationKind::SetObjectExistence:
+                delta.append(make_operation(kind, SetObjectExistenceOp{decode_ref(reader), decode_existence(reader)}, id));
+                break;
+            case OperationKind::SetObjectAttribute:
+                delta.append(make_operation(kind, SetObjectAttributeOp{decode_ref(reader), decode_attribute(reader)}, id));
+                break;
+            case OperationKind::RemoveObjectAttribute:
+                delta.append(make_operation(kind, RemoveObjectAttributeOp{decode_ref(reader), reader.string()}, id));
+                break;
+            case OperationKind::CreatePointer: {
+                PointerCreate body;
+                body.from = decode_ref(reader);
+                body.to = decode_ref(reader);
+                body.relation = decode_relation_type(reader);
+                body.causal_role = decode_causal_role(reader);
+                body.weight = Weight{reader.f64()};
+                body.law_domain = reader.string();
+                const auto attribute_count = checked_count(reader.u64());
+                body.attributes.reserve(static_cast<std::size_t>(attribute_count));
+                for (std::uint64_t attribute = 0; attribute < attribute_count; ++attribute) {
+                    body.attributes.push_back(decode_attribute(reader));
+                }
+                delta.append(make_operation(kind, std::move(body), id));
+                break;
+            }
+            case OperationKind::ExpirePointer:
+                delta.append(make_operation(kind, ExpirePointerOp{decode_pointer_id(reader)}, id));
+                break;
+            case OperationKind::SetPointerWeight:
+                delta.append(make_operation(kind, SetPointerWeightOp{decode_pointer_id(reader), Weight{reader.f64()}}, id));
+                break;
+            case OperationKind::SetPointerAttribute:
+                delta.append(make_operation(kind, SetPointerAttributeOp{decode_pointer_id(reader), decode_attribute(reader)}, id));
+                break;
+            case OperationKind::RemovePointerAttribute:
+                delta.append(make_operation(kind, RemovePointerAttributeOp{decode_pointer_id(reader), reader.string()}, id));
+                break;
+            case OperationKind::EmitEvent:
+                delta.append(make_operation(kind, EmitEventOp{decode_trace_event(reader)}, id));
+                break;
+            }
+        }
+        return delta;
+    }
 
     const auto create_count = checked_count(reader.u64());
-    delta.creates.reserve(static_cast<std::size_t>(create_count));
     for (std::uint64_t index = 0; index < create_count; ++index) {
-        delta.creates.push_back(ObjectCreate{
+        delta.append_create(ObjectCreate{
             TempObjectId{reader.u32()},
             reader.string(),
             decode_type_id(reader),
-            decode_existence(reader)
+            decode_existence(reader),
+            {}
         });
     }
 
     const auto update_count = checked_count(reader.u64());
-    delta.updates.reserve(static_cast<std::size_t>(update_count));
     for (std::uint64_t index = 0; index < update_count; ++index) {
-        delta.updates.push_back(ObjectUpdate{
+        delta.append_update(ObjectUpdate{
             decode_ref(reader),
             decode_optional_type(reader),
             decode_optional_existence(reader)
@@ -580,28 +932,26 @@ Delta decode_delta(CanonicalReader& reader) {
     }
 
     const auto link_count = checked_count(reader.u64());
-    delta.links.reserve(static_cast<std::size_t>(link_count));
     for (std::uint64_t index = 0; index < link_count; ++index) {
-        delta.links.push_back(PointerCreate{
+        delta.append_link(PointerCreate{
             decode_ref(reader),
             decode_ref(reader),
             decode_relation_type(reader),
             decode_causal_role(reader),
             Weight{reader.f64()},
-            reader.string()
+            reader.string(),
+            {}
         });
     }
 
     const auto unlink_count = checked_count(reader.u64());
-    delta.unlinks.reserve(static_cast<std::size_t>(unlink_count));
     for (std::uint64_t index = 0; index < unlink_count; ++index) {
-        delta.unlinks.push_back(PointerRemove{decode_pointer_id(reader)});
+        delta.append_unlink(PointerRemove{decode_pointer_id(reader)});
     }
 
     const auto event_count = checked_count(reader.u64());
-    delta.events.reserve(static_cast<std::size_t>(event_count));
     for (std::uint64_t index = 0; index < event_count; ++index) {
-        delta.events.push_back(decode_trace_event(reader));
+        delta.append_event(decode_trace_event(reader));
     }
     return delta;
 }
@@ -645,7 +995,7 @@ std::vector<LawStatus> decode_law_statuses(CanonicalReader& reader) {
 }
 
 void encode(CanonicalWriter& writer, const std::vector<LawViolation>& violations) {
-    writer.string("LawViolations:v1");
+    writer.string("LawViolations:v2");
     writer.u64(violations.size());
     for (const auto& violation : violations) {
         encode(writer, violation);
@@ -653,12 +1003,24 @@ void encode(CanonicalWriter& writer, const std::vector<LawViolation>& violations
 }
 
 std::vector<LawViolation> decode_law_violations(CanonicalReader& reader) {
-    reader.expect_tag("LawViolations:v1");
+    const auto tag = reader.string();
+    if (tag != "LawViolations:v1" && tag != "LawViolations:v2") {
+        throw std::runtime_error("canonical stream has unexpected type tag");
+    }
     const auto count = checked_count(reader.u64());
     std::vector<LawViolation> violations;
     violations.reserve(static_cast<std::size_t>(count));
     for (std::uint64_t index = 0; index < count; ++index) {
-        violations.push_back(decode_law_violation(reader));
+        if (tag == "LawViolations:v2") {
+            violations.push_back(decode_law_violation(reader));
+        } else {
+            LawViolation violation;
+            violation.law = reader.string();
+            violation.severity = decode_severity(reader);
+            violation.magnitude = reader.f64();
+            violation.explanation = reader.string();
+            violations.push_back(std::move(violation));
+        }
     }
     return violations;
 }
@@ -701,12 +1063,20 @@ void encode_commit_record_body(CanonicalWriter& writer, const CommitRecord& reco
     writer.hash(record.law_hash);
     writer.hash(record.violation_hash);
     writer.hash(record.morphism_path_hash);
+    writer.hash(record.execution_plan_hash);
+    writer.hash(record.read_set_hash);
+    writer.hash(record.write_set_hash);
+    writer.hash(record.proof_hash);
+    writer.u8(record.proof.has_value() ? 1 : 0);
+    if (record.proof.has_value()) {
+        encode_commit_proof(writer, *record.proof);
+    }
     writer.u8(record.accepted ? 1 : 0);
     writer.u8(static_cast<std::uint8_t>(record.origin));
     writer.string(record.label);
 }
 
-CommitRecord decode_commit_record_body(CanonicalReader& reader) {
+CommitRecord decode_commit_record_body_v1(CanonicalReader& reader) {
     CommitRecord record;
     record.parent = decode_optional_commit_id(reader);
     const auto parent_count = checked_count(reader.u64());
@@ -733,8 +1103,64 @@ CommitRecord decode_commit_record_body(CanonicalReader& reader) {
     return record;
 }
 
+CommitRecord decode_commit_record_body(CanonicalReader& reader) {
+    CommitRecord record;
+    record.parent = decode_optional_commit_id(reader);
+    const auto parent_count = checked_count(reader.u64());
+    record.parents.reserve(static_cast<std::size_t>(parent_count));
+    for (std::uint64_t index = 0; index < parent_count; ++index) {
+        record.parents.push_back(decode_commit_id(reader));
+    }
+    record.world = decode_world_id(reader);
+    record.branch = decode_branch_id(reader);
+    record.branch_name = reader.string();
+    record.transaction = decode_transaction_id(reader);
+    record.before_epoch = decode_epoch(reader);
+    record.after_epoch = decode_epoch(reader);
+    record.before_hash = reader.hash();
+    record.after_hash = reader.hash();
+    record.delta_hash = reader.hash();
+    record.trace_hash = reader.hash();
+    record.law_hash = reader.hash();
+    record.violation_hash = reader.hash();
+    record.morphism_path_hash = reader.hash();
+    record.execution_plan_hash = reader.hash();
+    record.read_set_hash = reader.hash();
+    record.write_set_hash = reader.hash();
+    record.proof_hash = reader.hash();
+    if (reader.u8() != 0) {
+        record.proof = decode_commit_proof(reader);
+    }
+    record.accepted = reader.u8() != 0;
+    record.origin = static_cast<TransactionOrigin>(reader.u8());
+    record.label = reader.string();
+    return record;
+}
+
+void encode_commit_proof(CanonicalWriter& writer, const CommitProof& proof) {
+    writer.hash(proof.before_root);
+    writer.hash(proof.operation_root);
+    writer.hash(proof.read_set_root);
+    writer.hash(proof.write_set_root);
+    writer.hash(proof.law_input_root);
+    writer.hash(proof.law_output_root);
+    writer.hash(proof.after_root);
+}
+
+CommitProof decode_commit_proof(CanonicalReader& reader) {
+    return CommitProof{
+        reader.hash(),
+        reader.hash(),
+        reader.hash(),
+        reader.hash(),
+        reader.hash(),
+        reader.hash(),
+        reader.hash()
+    };
+}
+
 void encode_commit_identity(CanonicalWriter& writer, const CommitRecord& record) {
-    writer.string("StoredCommit:v1");
+    writer.string("StoredCommit:v2");
     encode_commit_record_body(writer, record);
     writer.hash(record.before_hash);
     writer.hash(record.after_hash);

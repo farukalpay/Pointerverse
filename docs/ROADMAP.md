@@ -155,16 +155,25 @@ pointerverse guard run --repo . --base origin/main --markdown-out audit-report.m
 pointerverse guard run --repo examples/pr_guard/after --base ../before --markdown-out audit-report.md --json-out audit-report.json --sarif-out audit.sarif
 ```
 
-## Phase 7 - Realms Layer
+## Phase 7 - Kernel Hardening
 
-Introduce symbolic pressure, recurrence, inner regions, and mythic continuity
-only as a layer above lawful graph dynamics.
+Make Pointerverse a typed state kernel: operation batches over typed facts,
+indexed graph storage, deterministic execution plans, canonical world roots,
+and commit proofs.
 
-Status: demo pack implemented.
+Status: implemented.
 
-`examples/realms/empire` is intentionally a showcase demo, not the main product
-surface. It forks one kingdom graph into plague, rebellion, and succession
-branches, then demonstrates history, query, why, branch compare, and fsck.
+Delivered:
+
+- Typed `Value` and `Attribute` state on objects, pointers, and snapshots.
+- `Delta:v2` operation algebra with v1 decode compatibility.
+- Derived `FactStore` projection and canonical fact roots.
+- `WorldIndex` for type, name, relation, edge, and attribute lookup.
+- Execution plans with touched object/pointer sets and read/write fact sets.
+- `StoredCommit:v2` commit proofs and fsck proof validation.
+- `examples/kernel_stress` kernel stress demo.
+
+The Realms empire pack remains available as a showcase layer above the kernel.
 
 ## Phase 8 - Audit Hardening
 

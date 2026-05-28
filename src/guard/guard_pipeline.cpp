@@ -145,7 +145,7 @@ GuardRunResult run_guard(const GuardRunOptions& options) {
     IngestionOptions ingestion_options;
     ingestion_options.branch = options.branch;
     ingestion_options.domain = "agent_audit";
-    ingestion_options.mode = VerificationMode::Observe;
+    ingestion_options.mode = options.mode == "strict" ? VerificationMode::Strict : VerificationMode::Observe;
     auto ingestion = IngestionPipeline{repository}.ingest(events, AgentAuditAdapter{}, index, ingestion_options);
 
     auto findings = PrGuardPolicyPack{}.evaluate(entries);

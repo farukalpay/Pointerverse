@@ -6,8 +6,56 @@
 #include <memory>
 #include <stdexcept>
 
+#include "pv/kernel/fact_store.hpp"
+
 namespace pv {
 namespace {
+
+std::vector<FactId> pointer_evidence(const LawCheckContext& ctx, PointerId pointer) {
+    std::vector<FactId> out;
+    if (ctx.after_facts == nullptr) {
+        return out;
+    }
+    for (const auto& fact : ctx.after_facts->facts()) {
+        if (const auto* payload = std::get_if<PointerFactPayload>(&fact.payload);
+            payload != nullptr && payload->pointer == pointer) {
+            out.push_back(fact.id);
+        }
+    }
+    return out;
+}
+
+std::vector<FactId> object_evidence(const LawCheckContext& ctx, ObjectId object) {
+    std::vector<FactId> out;
+    if (ctx.before_facts == nullptr) {
+        return out;
+    }
+    for (const auto& fact : ctx.before_facts->facts()) {
+        if (const auto* payload = std::get_if<ObjectFactPayload>(&fact.payload);
+            payload != nullptr && payload->object == object) {
+            out.push_back(fact.id);
+        }
+    }
+    return out;
+}
+
+LawViolation pointer_violation(
+    const LawCheckContext& ctx,
+    std::string law,
+    Severity severity,
+    double magnitude,
+    std::string explanation,
+    const PointerSnapshot& pointer) {
+    LawViolation violation;
+    violation.law = std::move(law);
+    violation.severity = severity;
+    violation.magnitude = magnitude;
+    violation.explanation = std::move(explanation);
+    violation.evidence = pointer_evidence(ctx, pointer.id);
+    violation.objects = {pointer.from, pointer.to};
+    violation.pointers = {pointer.id};
+    return violation;
+}
 
 class BuiltinLaw final : public Law {
 public:
@@ -41,12 +89,13 @@ private:
         std::vector<LawViolation> violations;
         for (const auto& pointer : ctx.after.pointers) {
             if (!ctx.after.contains(pointer.from) || !ctx.after.contains(pointer.to)) {
-                violations.push_back({
+                violations.push_back(pointer_violation(
+                    ctx,
                     name_,
                     Severity::Error,
                     1.0,
-                    fmt::format("pointer {} references an object outside the snapshot", to_string(pointer.id))
-                });
+                    fmt::format("pointer {} references an object outside the snapshot", to_string(pointer.id)),
+                    pointer));
             }
         }
         return violations;
@@ -56,12 +105,13 @@ private:
         std::vector<LawViolation> violations;
         for (const auto& pointer : ctx.after.pointers) {
             if (!std::isfinite(pointer.weight.value) || pointer.weight.value < 0.0 || pointer.weight.value > 1.0 + tolerance_) {
-                violations.push_back({
+                violations.push_back(pointer_violation(
+                    ctx,
                     name_,
                     Severity::Error,
                     std::abs(pointer.weight.value),
-                    fmt::format("pointer {} has out-of-bound weight {:.12g}", to_string(pointer.id), pointer.weight.value)
-                });
+                    fmt::format("pointer {} has out-of-bound weight {:.12g}", to_string(pointer.id), pointer.weight.value),
+                    pointer));
             }
         }
         return violations;
@@ -71,12 +121,13 @@ private:
         std::vector<LawViolation> violations;
         for (const auto& pointer : ctx.after.pointers) {
             if (!pointer.relation.valid() || !ctx.after.relation_names.contains(pointer.relation.id)) {
-                violations.push_back({
+                violations.push_back(pointer_violation(
+                    ctx,
                     name_,
                     Severity::Error,
                     1.0,
-                    fmt::format("pointer {} has no registered relation type", to_string(pointer.id))
-                });
+                    fmt::format("pointer {} has no registered relation type", to_string(pointer.id)),
+                    pointer));
             }
         }
         return violations;
@@ -86,20 +137,22 @@ private:
         std::vector<LawViolation> violations;
         for (const auto& pointer : ctx.after.pointers) {
             if (pointer.born_at > ctx.after.epoch) {
-                violations.push_back({
+                violations.push_back(pointer_violation(
+                    ctx,
                     name_,
                     Severity::Error,
                     static_cast<double>(pointer.born_at.value - ctx.after.epoch.value),
-                    fmt::format("pointer {} is born after the snapshot epoch", to_string(pointer.id))
-                });
+                    fmt::format("pointer {} is born after the snapshot epoch", to_string(pointer.id)),
+                    pointer));
             }
             if (pointer.expires_at.has_value() && *pointer.expires_at < pointer.born_at) {
-                violations.push_back({
+                violations.push_back(pointer_violation(
+                    ctx,
                     name_,
                     Severity::Error,
                     1.0,
-                    fmt::format("pointer {} expires before it is born", to_string(pointer.id))
-                });
+                    fmt::format("pointer {} expires before it is born", to_string(pointer.id)),
+                    pointer));
             }
         }
         return violations;
@@ -110,12 +163,14 @@ private:
         for (const auto& object : ctx.before.objects) {
             const auto* after = ctx.after.object(object.id);
             if (after == nullptr) {
-                violations.push_back({
-                    name_,
-                    Severity::Fatal,
-                    1.0,
-                    fmt::format("object {} disappeared instead of changing existence state", to_string(object.id))
-                });
+                LawViolation violation;
+                violation.law = name_;
+                violation.severity = Severity::Fatal;
+                violation.magnitude = 1.0;
+                violation.explanation = fmt::format("object {} disappeared instead of changing existence state", to_string(object.id));
+                violation.evidence = object_evidence(ctx, object.id);
+                violation.objects = {object.id};
+                violations.push_back(std::move(violation));
             }
         }
         return violations;

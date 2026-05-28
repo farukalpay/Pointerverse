@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "pv/core/attribute.hpp"
+#include "pv/core/fact.hpp"
 #include "pv/hash/canonical.hpp"
 #include "pv/core/object.hpp"
 #include "pv/core/pointer.hpp"
@@ -19,6 +21,7 @@ struct ObjectSnapshot {
     std::string name;
     TypeId type;
     ExistenceState existence{ExistenceState::Alive};
+    std::vector<Attribute> attributes;
     std::size_t incoming_count{0};
     std::size_t outgoing_count{0};
 };
@@ -33,6 +36,7 @@ struct PointerSnapshot {
     Epoch born_at;
     std::optional<Epoch> expires_at;
     std::string law_domain{"core"};
+    std::vector<Attribute> attributes;
 };
 
 struct WorldSnapshot {
@@ -41,6 +45,7 @@ struct WorldSnapshot {
     Epoch epoch;
     std::vector<ObjectSnapshot> objects;
     std::vector<PointerSnapshot> pointers;
+    std::vector<Fact> facts;
     std::map<std::uint32_t, std::string> type_names;
     std::map<std::uint32_t, std::string> relation_names;
 

@@ -2,45 +2,23 @@
 #pragma once
 
 #include <expected>
-#include <optional>
 #include <string>
-#include <vector>
 
-#include "pv/core/delta.hpp"
 #include "pv/core/world.hpp"
-#include "pv/hash/canonical.hpp"
+#include "pv/kernel/execution_plan.hpp"
 #include "pv/runtime/ids.hpp"
+#include "pv/runtime/transaction_types.hpp"
 
 namespace pv {
-
-enum class TransactionOrigin : std::uint8_t {
-    Manual,
-    Script,
-    Morphism,
-    Evolution,
-    Replay,
-    ForkMerge,
-    Internal,
-    Ingestion
-};
-
-struct Transaction {
-    TransactionId id;
-    TransactionOrigin origin{TransactionOrigin::Manual};
-    std::string label;
-    Delta delta;
-    std::vector<std::string> morphism_path;
-    std::optional<Hash256> input_snapshot_hash;
-    std::optional<Epoch> expected_base_epoch;
-    bool allow_empty{false};
-};
 
 struct PreparedTransaction {
     Transaction tx;
     WorldSnapshot before;
     std::expected<WorldSnapshot, OverlayError> predicted_after;
+    ExecutionPlan execution_plan;
     VerificationResult verification;
     std::vector<TraceEvent> predicted_events;
+    std::optional<CommitProof> proof;
     bool committable{false};
     std::string rejection_reason;
 };

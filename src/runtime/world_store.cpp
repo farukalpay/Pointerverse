@@ -257,6 +257,11 @@ std::optional<CommitRecord> WorldStore::commit(BranchId branch_id, Transaction t
     record.law_hash = canonical_hash(result.law_statuses);
     record.violation_hash = canonical_hash(result.violations);
     record.morphism_path_hash = canonical_hash_morphism_path(tx.morphism_path);
+    record.execution_plan_hash = result.execution_plan_hash;
+    record.read_set_hash = result.read_set_hash;
+    record.write_set_hash = result.write_set_hash;
+    record.proof_hash = result.proof_hash;
+    record.proof = result.proof;
     record.accepted = result.accepted;
     record.origin = tx.origin;
     record.label = tx.label;

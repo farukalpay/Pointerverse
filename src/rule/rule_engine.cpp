@@ -50,14 +50,15 @@ std::vector<LawViolation> PatternLaw::check(const LawCheckContext& ctx) const {
             continue;
         }
 
-        violations.push_back(LawViolation{
-            rule_.name,
-            rule_.severity,
-            1.0,
-            rule_.reason.empty()
-                ? fmt::format("{} {} {} violates {}", match.from_name, match.relation, match.to_name, rule_.name)
-                : expand_reason(rule_.reason, match)
-        });
+        LawViolation violation;
+        violation.law = rule_.name;
+        violation.severity = rule_.severity;
+        violation.magnitude = 1.0;
+        violation.explanation = rule_.reason.empty()
+            ? fmt::format("{} {} {} violates {}", match.from_name, match.relation, match.to_name, rule_.name)
+            : expand_reason(rule_.reason, match);
+        violation.objects = {match.from, match.to};
+        violations.push_back(std::move(violation));
     }
     return violations;
 }

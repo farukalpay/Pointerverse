@@ -22,10 +22,15 @@ add_library(pointerverse_core
     src/cli/script.cpp
     src/core/id.cpp
     src/core/object.cpp
+    src/core/attribute.cpp
+    src/core/fact.cpp
+    src/core/operation.cpp
     src/core/relation.cpp
     src/core/snapshot.cpp
     src/core/type.cpp
+    src/core/value.cpp
     src/core/world.cpp
+    src/core/world_index.cpp
     src/domain/agent_audit.cpp
     src/domain/domain.cpp
     src/domain/package.cpp
@@ -44,6 +49,11 @@ add_library(pointerverse_core
     src/ingest/ingestion_pipeline.cpp
     src/ingest/jsonl_adapter.cpp
     src/ingest/normalizer.cpp
+    src/kernel/executor.cpp
+    src/kernel/execution_plan.cpp
+    src/kernel/fact_store.cpp
+    src/kernel/merkle.cpp
+    src/kernel/proof.cpp
     src/law/invariant.cpp
     src/law/verifier.cpp
     src/observer/observer.cpp
@@ -103,6 +113,13 @@ target_link_libraries(pointerverse
         fmt::fmt
 )
 
+add_executable(pointerverse_kernel_stress examples/kernel_stress/kernel_stress.cpp)
+target_link_libraries(pointerverse_kernel_stress
+    PRIVATE
+        pointerverse_core
+        fmt::fmt
+)
+
 if(POINTERVERSE_BUILD_TESTS)
     enable_testing()
     find_package(Catch2 3 CONFIG REQUIRED)
@@ -112,6 +129,7 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/cli/cli_tests.cpp
         tests/core/core_tests.cpp
         tests/core/delta_tests.cpp
+        tests/core/value_tests.cpp
         tests/domain/agent_audit_tests.cpp
         tests/guard/git_diff_adapter_tests.cpp
         tests/guard/guard_pipeline_tests.cpp
@@ -121,6 +139,11 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/ingest/evidence_tests.cpp
         tests/ingest/idempotency_tests.cpp
         tests/ingest/jsonl_adapter_tests.cpp
+        tests/kernel/attribute_snapshot_tests.cpp
+        tests/kernel/execution_plan_tests.cpp
+        tests/kernel/merkle_root_tests.cpp
+        tests/kernel/operation_tests.cpp
+        tests/kernel/proof_tests.cpp
         tests/audit/report_tests.cpp
         tests/law/law_tests.cpp
         tests/query/query_tests.cpp

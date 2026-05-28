@@ -9,8 +9,10 @@
 #include <vector>
 
 #include "pv/core/delta.hpp"
+#include "pv/core/fact.hpp"
 #include "pv/core/snapshot.hpp"
 #include "pv/hash/canonical.hpp"
+#include "pv/kernel/proof.hpp"
 #include "pv/law/law.hpp"
 #include "pv/runtime/commit_record.hpp"
 #include "pv/trace/event.hpp"
@@ -62,6 +64,9 @@ private:
 
 void encode(CanonicalWriter& writer, const WorldSnapshot& snapshot);
 void encode(CanonicalWriter& writer, const Delta& delta);
+void encode(CanonicalWriter& writer, const Value& value);
+void encode(CanonicalWriter& writer, const Attribute& attribute);
+void encode(CanonicalWriter& writer, const Fact& fact);
 void encode(CanonicalWriter& writer, const TraceEvent& event);
 void encode(CanonicalWriter& writer, const std::vector<TraceEvent>& events);
 void encode(CanonicalWriter& writer, const LawStatus& status);
@@ -71,9 +76,13 @@ void encode(CanonicalWriter& writer, const std::vector<LawViolation>& violations
 void encode_morphism_path(CanonicalWriter& writer, const std::vector<std::string>& path);
 void encode_commit_identity(CanonicalWriter& writer, const CommitRecord& record);
 void encode_commit_record_body(CanonicalWriter& writer, const CommitRecord& record);
+void encode_commit_proof(CanonicalWriter& writer, const CommitProof& proof);
 
 [[nodiscard]] WorldSnapshot decode_world_snapshot(CanonicalReader& reader);
 [[nodiscard]] Delta decode_delta(CanonicalReader& reader);
+[[nodiscard]] Value decode_value(CanonicalReader& reader);
+[[nodiscard]] Attribute decode_attribute(CanonicalReader& reader);
+[[nodiscard]] Fact decode_fact(CanonicalReader& reader);
 [[nodiscard]] TraceEvent decode_trace_event(CanonicalReader& reader);
 [[nodiscard]] std::vector<TraceEvent> decode_trace_events(CanonicalReader& reader);
 [[nodiscard]] LawStatus decode_law_status(CanonicalReader& reader);
@@ -82,6 +91,8 @@ void encode_commit_record_body(CanonicalWriter& writer, const CommitRecord& reco
 [[nodiscard]] std::vector<LawViolation> decode_law_violations(CanonicalReader& reader);
 [[nodiscard]] std::vector<std::string> decode_morphism_path(CanonicalReader& reader);
 [[nodiscard]] CommitRecord decode_commit_record_body(CanonicalReader& reader);
+[[nodiscard]] CommitRecord decode_commit_record_body_v1(CanonicalReader& reader);
+[[nodiscard]] CommitProof decode_commit_proof(CanonicalReader& reader);
 
 template <class T>
 [[nodiscard]] std::vector<std::byte> canonical_encode(const T& value) {

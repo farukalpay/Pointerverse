@@ -101,11 +101,12 @@ std::optional<ReplayError> append_state_event(
             }
             const auto temp = TempObjectId{group.next_temp++};
             group.created_objects.emplace(object_name, temp);
-            group.delta.creates.push_back(ObjectCreate{
+            group.delta.append_create(ObjectCreate{
                 temp,
                 object_name,
                 world.type_id(type_name),
-                existence_state_from_string(field(fields, "existence", "Alive"))
+                existence_state_from_string(field(fields, "existence", "Alive")),
+                {}
             });
             group.state_events += 1;
             return std::nullopt;
@@ -124,7 +125,7 @@ std::optional<ReplayError> append_state_event(
             if (const auto existence_name = field(fields, "existence"); !existence_name.empty()) {
                 existence = existence_state_from_string(existence_name);
             }
-            group.delta.updates.push_back(ObjectUpdate{object_ref_for(world, group, object_name), type, existence});
+            group.delta.append_update(ObjectUpdate{object_ref_for(world, group, object_name), type, existence});
             group.state_events += 1;
             return std::nullopt;
         }
@@ -136,20 +137,21 @@ std::optional<ReplayError> append_state_event(
             if (from.empty() || to.empty() || relation.empty()) {
                 return ReplayError{line, event, "pointer.create requires from, to, and relation fields"};
             }
-            group.delta.links.push_back(PointerCreate{
+            group.delta.append_link(PointerCreate{
                 object_ref_for(world, group, from),
                 object_ref_for(world, group, to),
                 world.relation_type(relation),
                 causal_role_from_string(field(fields, "role", "Structural")),
                 Weight{measurement(measurements, "weight", 1.0)},
-                field(fields, "law_domain", "core")
+                field(fields, "law_domain", "core"),
+                {}
             });
             group.state_events += 1;
             return std::nullopt;
         }
 
         if (event == "pointer.remove") {
-            group.delta.unlinks.push_back(PointerRemove{pointer_id_from_string(field(fields, "pointer"))});
+            group.delta.append_unlink(PointerRemove{pointer_id_from_string(field(fields, "pointer"))});
             group.state_events += 1;
             return std::nullopt;
         }

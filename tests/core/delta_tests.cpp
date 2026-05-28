@@ -40,7 +40,7 @@ TEST_CASE("morphisms produce deltas before world commit") {
     DefinedMorphism readout{"Readout", MorphismSignature{node, observation}};
 
     const auto delta = readout.apply(world.snapshot(), Selection{{world.object_by_name("A")}, {}});
-    REQUIRE(delta.updates.size() == 1);
+    REQUIRE(delta.updates_view().size() == 1);
     REQUIRE(world.type_name(world.object(world.object_by_name("A")).type) == "Node");
 
     const auto result = world.commit(delta, verifier);
@@ -76,8 +76,8 @@ TEST_CASE("temp object can be created and updated before commit") {
     const auto observation = world.type_id("Observation");
 
     Delta delta;
-    delta.creates.push_back(ObjectCreate{TempObjectId{1}, "A", node, ExistenceState::Alive});
-    delta.updates.push_back(ObjectUpdate{ObjectRef{TempObjectId{1}}, observation, std::nullopt});
+    delta.append_create(ObjectCreate{TempObjectId{1}, "A", node, ExistenceState::Alive, {}});
+    delta.append_update(ObjectUpdate{ObjectRef{TempObjectId{1}}, observation, std::nullopt});
 
     const auto overlay = SnapshotOverlay{world.snapshot()}.apply(delta);
     REQUIRE(overlay.has_value());
@@ -99,14 +99,15 @@ TEST_CASE("temp object can be created and linked in the same delta") {
     const auto relation = world.relation_type("causes");
 
     Delta delta;
-    delta.creates.push_back(ObjectCreate{TempObjectId{1}, "B", node, ExistenceState::Alive});
-    delta.links.push_back(PointerCreate{
+    delta.append_create(ObjectCreate{TempObjectId{1}, "B", node, ExistenceState::Alive, {}});
+    delta.append_link(PointerCreate{
         ObjectRef{world.object_by_name("A")},
         ObjectRef{TempObjectId{1}},
         relation,
         CausalRole::Structural,
         Weight{0.5},
-        "core"
+        "core",
+        {}
     });
 
     const auto result = world.commit(delta, verifier);
@@ -120,7 +121,7 @@ TEST_CASE("sequential merge rejects unresolved object references") {
     const auto node = world.type_id("Node");
 
     Delta delta;
-    delta.updates.push_back(ObjectUpdate{ObjectRef{ObjectId{99, 1}}, node, std::nullopt});
+    delta.append_update(ObjectUpdate{ObjectRef{ObjectId{99, 1}}, node, std::nullopt});
 
     const auto merged = merge_sequential(world.snapshot(), Delta{}, delta);
     REQUIRE_FALSE(merged.has_value());
@@ -135,8 +136,8 @@ TEST_CASE("sequential merge rejects conflicting type updates inside one delta") 
     const auto object = world.object_by_name("A");
 
     Delta delta;
-    delta.updates.push_back(ObjectUpdate{ObjectRef{object}, observation, std::nullopt});
-    delta.updates.push_back(ObjectUpdate{ObjectRef{object}, region, std::nullopt});
+    delta.append_update(ObjectUpdate{ObjectRef{object}, observation, std::nullopt});
+    delta.append_update(ObjectUpdate{ObjectRef{object}, region, std::nullopt});
 
     const auto merged = merge_sequential(world.snapshot(), Delta{}, delta);
     REQUIRE_FALSE(merged.has_value());
@@ -149,24 +150,27 @@ TEST_CASE("sequential merge remaps colliding temp ids from the second delta") {
     const auto relation = world.relation_type("causes");
 
     Delta first;
-    first.creates.push_back(ObjectCreate{TempObjectId{1}, "A", node, ExistenceState::Alive});
+    first.append_create(ObjectCreate{TempObjectId{1}, "A", node, ExistenceState::Alive, {}});
 
     Delta second;
-    second.creates.push_back(ObjectCreate{TempObjectId{1}, "B", node, ExistenceState::Alive});
-    second.links.push_back(PointerCreate{
+    second.append_create(ObjectCreate{TempObjectId{1}, "B", node, ExistenceState::Alive, {}});
+    second.append_link(PointerCreate{
         ObjectRef{ObjectId{0, 1}},
         ObjectRef{TempObjectId{1}},
         relation,
         CausalRole::Structural,
         Weight{1.0},
-        "core"
+        "core",
+        {}
     });
 
     const auto merged = merge_sequential(world.snapshot(), first, second);
     REQUIRE(merged.has_value());
-    REQUIRE(merged->creates.size() == 2);
-    REQUIRE(merged->creates[0].temp_id == TempObjectId{1});
-    REQUIRE(merged->creates[1].temp_id == TempObjectId{2});
-    REQUIRE(std::get<TempObjectId>(merged->links.front().from) == TempObjectId{1});
-    REQUIRE(std::get<TempObjectId>(merged->links.front().to) == TempObjectId{2});
+    const auto creates = merged->creates_view();
+    const auto links = merged->links_view();
+    REQUIRE(creates.size() == 2);
+    REQUIRE(creates[0].temp_id == TempObjectId{1});
+    REQUIRE(creates[1].temp_id == TempObjectId{2});
+    REQUIRE(std::get<TempObjectId>(links.front().from) == TempObjectId{1});
+    REQUIRE(std::get<TempObjectId>(links.front().to) == TempObjectId{2});
 }

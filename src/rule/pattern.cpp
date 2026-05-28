@@ -29,7 +29,7 @@ std::optional<ObjectId> resolve_ref_after(const LawCheckContext& ctx, const Obje
     }
 
     const auto temp = std::get<TempObjectId>(ref);
-    for (const auto& create : ctx.delta.creates) {
+    for (const auto& create : ctx.delta.creates_view()) {
         if (create.temp_id == temp) {
             return object_named(ctx.after, create.name);
         }
@@ -105,8 +105,9 @@ bool matches_relation_pattern(
 
 std::vector<PatternMatch> trigger_matches(const LawCheckContext& ctx, const RelationPattern& trigger) {
     std::vector<PatternMatch> out;
-    if (!ctx.delta.links.empty()) {
-        for (const auto& link : ctx.delta.links) {
+    const auto links = ctx.delta.links_view();
+    if (!links.empty()) {
+        for (const auto& link : links) {
             const auto from = resolve_ref_after(ctx, link.from);
             const auto to = resolve_ref_after(ctx, link.to);
             if (!from.has_value() || !to.has_value()) {

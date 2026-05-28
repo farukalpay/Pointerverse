@@ -25,7 +25,7 @@ Selection project_selection(const Selection& selection, const WorldSnapshot& sna
 
 Delta composition_failure(std::string_view name, std::string reason) {
     Delta delta;
-    delta.events.push_back(TraceEvent{
+    delta.append_event(TraceEvent{
         {},
         "morphism.compose.rejected",
         {{"name", std::string{name}}, {"reason", std::move(reason)}},
@@ -48,7 +48,7 @@ MorphismSignature IdentityMorphism::signature() const {
 
 Delta IdentityMorphism::apply(const WorldSnapshot&, const Selection&) const {
     Delta delta;
-    delta.events.push_back(TraceEvent{
+    delta.append_event(TraceEvent{
         {},
         "morphism.apply",
         {{"name", "id"}, {"kind", "identity"}},
@@ -76,10 +76,10 @@ Delta DefinedMorphism::apply(const WorldSnapshot& snapshot, const Selection& sel
             continue;
         }
         if (signature_.domain != signature_.codomain) {
-            delta.updates.push_back(ObjectUpdate{ObjectRef{object}, signature_.codomain, std::nullopt});
+            delta.append_update(ObjectUpdate{ObjectRef{object}, signature_.codomain, std::nullopt});
         }
     }
-    delta.events.push_back(TraceEvent{
+    delta.append_event(TraceEvent{
         {},
         "morphism.apply",
         {{"name", name_}},
@@ -123,7 +123,7 @@ Delta ComposedMorphism::apply(const WorldSnapshot& snapshot, const Selection& se
         return composition_failure(name_, fmt::format("sequential merge failed: {}", to_string(merged.error())));
     }
 
-    merged->events.push_back(TraceEvent{
+    merged->append_event(TraceEvent{
         {},
         "morphism.compose",
         {{"name", name_}, {"kind", "composition"}},

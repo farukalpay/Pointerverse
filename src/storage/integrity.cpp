@@ -7,6 +7,9 @@
 #include <utility>
 
 #include "pv/hash/hasher.hpp"
+#include "pv/kernel/merkle.hpp"
+#include "pv/kernel/proof.hpp"
+#include "pv/storage/canonical_codec.hpp"
 #include "pv/storage/repository.hpp"
 
 namespace pv {
@@ -23,6 +26,15 @@ std::vector<std::byte> read_bytes(const std::filesystem::path& path) {
 
 void add_error(IntegrityReport& report, std::string message) {
     report.errors.push_back(IntegrityError{std::move(message)});
+}
+
+Hash256 law_output_root(const std::vector<LawStatus>& statuses, const std::vector<LawViolation>& violations) {
+    CanonicalWriter writer;
+    writer.string("LawOutputRoot:v1");
+    writer.u64(2);
+    writer.hash(canonical_hash(statuses));
+    writer.hash(canonical_hash(violations));
+    return sha256(writer.bytes());
 }
 
 }  // namespace
@@ -105,6 +117,32 @@ IntegrityReport IntegrityChecker::check_repository(const Repository& repo) const
                 const auto violations = repo.objects().get_canonical<std::vector<LawViolation>>(stored.violation_object);
                 if (canonical_hash(violations) != record.violation_hash) {
                     add_error(report, "commit violation hash mismatch: " + to_hex(record.id.value));
+                }
+                if (record.proof.has_value()) {
+                    const auto proof_hash = hash_commit_proof(*record.proof);
+                    if (proof_hash != record.proof_hash) {
+                        add_error(report, "commit proof hash mismatch: " + to_hex(record.id.value));
+                    }
+                    const auto before_root = compute_world_root(before);
+                    const auto after_root = compute_world_root(after);
+                    if (record.proof->before_root != before_root.root) {
+                        add_error(report, "commit proof before root mismatch: " + to_hex(record.id.value));
+                    }
+                    if (record.proof->after_root != after_root.root) {
+                        add_error(report, "commit proof after root mismatch: " + to_hex(record.id.value));
+                    }
+                    if (record.proof->operation_root != record.delta_hash) {
+                        add_error(report, "commit proof operation root mismatch: " + to_hex(record.id.value));
+                    }
+                    if (record.proof->read_set_root != record.read_set_hash) {
+                        add_error(report, "commit proof read set root mismatch: " + to_hex(record.id.value));
+                    }
+                    if (record.proof->write_set_root != record.write_set_hash) {
+                        add_error(report, "commit proof write set root mismatch: " + to_hex(record.id.value));
+                    }
+                    if (record.proof->law_output_root != law_output_root(statuses, violations)) {
+                        add_error(report, "commit proof law output root mismatch: " + to_hex(record.id.value));
+                    }
                 }
             } catch (const std::exception& error) {
                 add_error(report, "commit verification failed for " + to_hex(record.id.value) + ": " + error.what());

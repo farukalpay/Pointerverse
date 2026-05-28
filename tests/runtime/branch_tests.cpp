@@ -18,7 +18,7 @@ Transaction object_tx(World& world, std::string name, std::string type) {
 Transaction type_update_tx(World& world, ObjectId object, std::string type) {
     Transaction tx;
     tx.label = "type update";
-    tx.delta.updates.push_back(ObjectUpdate{ObjectRef{object}, world.type_id(type), std::nullopt});
+    tx.delta.append_update(ObjectUpdate{ObjectRef{object}, world.type_id(type), std::nullopt});
     return tx;
 }
 

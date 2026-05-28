@@ -11,7 +11,9 @@ structural: a private inner model can become vast when it is built from repeated
 figures, recurring conflicts, transformed source material, persistent
 constraints, and internal continuity that becomes legible through its archive.
 
-For M7, Realms exists as `examples/realms/empire`: a demo pack that uses the
-existing repository, branch, law, query, and explanation machinery. There is no
+Realms currently exists as `examples/realms/empire`: a demo pack that uses the
+existing repository, branch, law, query, and explanation machinery. M7 focuses
+on kernel hardening instead of expanding Realms. There is no
 `include/pv/realms/` directory. Any future Realms implementation must produce
-deltas, pass the verifier, and emit trace events like any other subsystem.
+typed operation batches, pass the verifier, and emit trace events like any other
+subsystem.

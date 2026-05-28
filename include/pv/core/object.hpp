@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "pv/core/attribute.hpp"
 #include "pv/core/handle.hpp"
 #include "pv/core/type.hpp"
 
@@ -25,7 +26,7 @@ struct Object {
     std::string name;
     TypeId type;
     ExistenceState existence{ExistenceState::Alive};
-    std::unordered_map<std::string, std::string> attributes;
+    std::unordered_map<std::string, Value> attributes;
 };
 
 using ObjectHandle = Handle<Object>;

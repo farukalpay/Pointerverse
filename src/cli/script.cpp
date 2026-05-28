@@ -72,15 +72,20 @@ std::string string_option(
 }
 
 CommitResult result_from_record(const CommitRecord& record) {
-    return CommitResult{
-        record.accepted,
-        record.before_epoch,
-        record.after_epoch,
-        record.law_statuses,
-        record.violations,
-        record.events,
-        truncated_u64(record.after_hash)
-    };
+    CommitResult result;
+    result.accepted = record.accepted;
+    result.before_epoch = record.before_epoch;
+    result.after_epoch = record.after_epoch;
+    result.law_statuses = record.law_statuses;
+    result.violations = record.violations;
+    result.events = record.events;
+    result.world_hash = truncated_u64(record.after_hash);
+    result.execution_plan_hash = record.execution_plan_hash;
+    result.read_set_hash = record.read_set_hash;
+    result.write_set_hash = record.write_set_hash;
+    result.proof_hash = record.proof_hash;
+    result.proof = record.proof;
+    return result;
 }
 
 bool print_violations(std::ostream& output, const std::vector<LawViolation>& violations) {
@@ -131,7 +136,7 @@ EvolveResult evolve_through_sink(TransactionSink& sink, std::size_t steps) {
 
     for (std::size_t index = 0; index < steps; ++index) {
         auto delta = program.step(sink.world().snapshot(), Epoch{sink.world().epoch().value + 1});
-        delta.events.push_back(TraceEvent{
+        delta.append_event(TraceEvent{
             {},
             "evolution.step",
             {{"step", std::to_string(index + 1)}},
@@ -471,7 +476,7 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
 
             const Selection selection{{world.object_by_name(object_name)}, {}};
             auto delta = morphism->apply(world.snapshot(), selection);
-            const auto path = morphism_path_from_events(delta.events, label_name);
+            const auto path = morphism_path_from_events(delta.events_view(), label_name);
 
             Transaction tx;
             tx.origin = TransactionOrigin::Morphism;

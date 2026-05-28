@@ -1,7 +1,8 @@
 # Pointerverse
 
-Pointerverse is a C++ PR guard that turns git diffs and agent/workflow evidence
-into replayable, law-checked audit graphs.
+Pointerverse Kernel executes typed operation batches over a content-addressed
+fact graph, producing deterministic world roots, read/write sets, law evidence,
+and commit proofs.
 
 The primary user-facing layer is **Pointerverse Guard**: a command-line PR risk
 auditor for fast or AI-assisted code changes. It maps changed files into an
@@ -58,6 +59,7 @@ cmake --build build
 ./build/pointerverse audit export main --format json
 ./build/pointerverse guard run --repo . --base origin/main --mode observe
 ./build/pointerverse guard run --repo . --base origin/main --format markdown --out audit-report.md
+examples/kernel_stress/run_demo.sh
 ```
 
 ## Pointerverse Guard
@@ -174,6 +176,16 @@ examples/realms/empire/run_demo.sh
 
 The demo runs `history`, `query`, `why`, `branch compare`, and `fsck` against
 the resulting `.empire` store.
+
+## Kernel stress demo
+
+`examples/kernel_stress` exercises the M7 kernel directly: typed attributes,
+operation batches, fact projection, indexes, execution plans, Merkle roots,
+commit proofs, repository reopen, and fsck proof verification.
+
+```sh
+examples/kernel_stress/run_demo.sh
+```
 
 ## DSL sample
 

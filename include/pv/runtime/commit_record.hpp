@@ -7,9 +7,10 @@
 
 #include "pv/core/id.hpp"
 #include "pv/hash/canonical.hpp"
+#include "pv/kernel/proof.hpp"
 #include "pv/law/law.hpp"
 #include "pv/runtime/ids.hpp"
-#include "pv/runtime/transaction.hpp"
+#include "pv/runtime/transaction_types.hpp"
 #include "pv/trace/event.hpp"
 
 namespace pv {
@@ -37,6 +38,11 @@ struct CommitRecord {
     Hash256 law_hash;
     Hash256 violation_hash;
     Hash256 morphism_path_hash;
+    Hash256 execution_plan_hash;
+    Hash256 read_set_hash;
+    Hash256 write_set_hash;
+    Hash256 proof_hash;
+    std::optional<CommitProof> proof;
 
     bool accepted{false};
 

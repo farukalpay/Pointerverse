@@ -4,7 +4,9 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 
+#include "pv/core/attribute.hpp"
 #include "pv/core/id.hpp"
 #include "pv/core/relation.hpp"
 
@@ -32,6 +34,7 @@ struct PointerEdge {
     Epoch born_at;
     std::optional<Epoch> expires_at;
     std::string law_domain{"core"};
+    std::unordered_map<std::string, Value> attributes;
 
     [[nodiscard]] bool active_at(Epoch epoch) const noexcept;
 };
