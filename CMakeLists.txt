@@ -127,6 +127,23 @@ add_library(pointerverse_query
 pointerverse_configure_target(pointerverse_query)
 target_link_libraries(pointerverse_query PUBLIC pointerverse_storage)
 
+add_library(pointerverse_projection
+    src/projection/entity_projection.cpp
+    src/projection/projection_store.cpp
+    src/projection/relation_projection.cpp
+    src/projection/timeline_projection.cpp
+)
+pointerverse_configure_target(pointerverse_projection)
+target_link_libraries(pointerverse_projection PUBLIC pointerverse_storage)
+
+add_library(pointerverse_breakpoint
+    src/breakpoint/breakpoint_finder.cpp
+    src/breakpoint/evidence_chain.cpp
+    src/breakpoint/repair_candidate.cpp
+)
+pointerverse_configure_target(pointerverse_breakpoint)
+target_link_libraries(pointerverse_breakpoint PUBLIC pointerverse_projection)
+
 add_library(pointerverse_measure
     src/measure/component_record.cpp
     src/measure/risk_value.cpp
@@ -138,6 +155,9 @@ add_library(pointerverse_measure
     src/measure/structural_measure.cpp
     src/measure/law_measure.cpp
     src/measure/repair_measure.cpp
+    src/measure/intrinsic_edit_cost.cpp
+    src/measure/counterfactual_measure.cpp
+    src/measure/breakpoint_measure.cpp
     src/measure/history_measure.cpp
     src/measure/calibration.cpp
     src/measure/measurement_index.cpp
@@ -153,6 +173,7 @@ target_link_libraries(pointerverse_measure
     PUBLIC
         pointerverse_storage
         pointerverse_query
+        pointerverse_breakpoint
 )
 
 add_library(pointerverse_rules
@@ -199,23 +220,6 @@ add_library(pointerverse_ingest
 )
 pointerverse_configure_target(pointerverse_ingest)
 target_link_libraries(pointerverse_ingest PUBLIC pointerverse_storage pointerverse_domains pointerverse_normalize)
-
-add_library(pointerverse_projection
-    src/projection/entity_projection.cpp
-    src/projection/projection_store.cpp
-    src/projection/relation_projection.cpp
-    src/projection/timeline_projection.cpp
-)
-pointerverse_configure_target(pointerverse_projection)
-target_link_libraries(pointerverse_projection PUBLIC pointerverse_storage)
-
-add_library(pointerverse_breakpoint
-    src/breakpoint/breakpoint_finder.cpp
-    src/breakpoint/evidence_chain.cpp
-    src/breakpoint/repair_candidate.cpp
-)
-pointerverse_configure_target(pointerverse_breakpoint)
-target_link_libraries(pointerverse_breakpoint PUBLIC pointerverse_projection)
 
 add_library(pointerverse_decision
     src/decision/decision_report.cpp
@@ -381,6 +385,9 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/measure/structural_measure_tests.cpp
         tests/measure/law_measure_tests.cpp
         tests/measure/repair_measure_tests.cpp
+        tests/measure/intrinsic_edit_cost_tests.cpp
+        tests/measure/counterfactual_measure_tests.cpp
+        tests/measure/breakpoint_measure_tests.cpp
         tests/measure/history_measure_tests.cpp
         tests/measure/measurement_store_tests.cpp
         tests/measure/measurement_verifier_tests.cpp

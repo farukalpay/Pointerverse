@@ -71,19 +71,20 @@ const PointerSnapshot* pointer_from_breakpoint(const WorldSnapshot& snapshot, co
     return best;
 }
 
-RepairAction action_for(const Breakpoint& breakpoint, const PointerSnapshot& pointer) {
-    if (breakpoint.kind == BreakpointKind::InvariantViolation && pointer.weight.value > 1.0) {
-        return RepairAction::ConstrainTriggeringRelation;
+double constrained_weight(const PointerSnapshot& pointer) {
+    return pointer.weight.value > 1.0 ? 1.0 : std::max(0.0, pointer.weight.value * 0.5);
+}
+
+std::string replacement_relation_name(std::string relation) {
+    if (relation.empty()) {
+        return "replacement";
     }
-    if (breakpoint.kind == BreakpointKind::AbnormalConcentration) {
-        return RepairAction::ConstrainTriggeringRelation;
-    }
-    return RepairAction::RemoveTriggeringRelation;
+    return relation + "_counterfactual";
 }
 
 std::string script_for(
     const Breakpoint& breakpoint,
-    RepairAction action,
+    const RepairCandidate& candidate,
     const WorldSnapshot& snapshot,
     const PointerSnapshot& pointer) {
     const auto from = object_name(snapshot, pointer.from);
@@ -97,14 +98,28 @@ std::string script_for(
         script << fmt::format("# evidence {}\n", evidence);
     }
 
-    if (action == RepairAction::ConstrainTriggeringRelation) {
-        const auto weight = pointer.weight.value > 1.0 ? 1.0 : std::max(0.0, pointer.weight.value * 0.5);
+    if (candidate.action == RepairAction::ConstrainTriggeringRelation) {
         script << fmt::format(
             "constrain {} -> {} : {} weight={:.12g} pointer=P{}\n",
             from,
             to,
             relation,
-            weight,
+            candidate.replacement_weight.value_or(constrained_weight(pointer)),
+            pointer.id.value);
+    } else if (candidate.action == RepairAction::DelayTriggeringRelation) {
+        script << fmt::format(
+            "delay {} -> {} : {} epochs=1 pointer=P{}\n",
+            from,
+            to,
+            relation,
+            pointer.id.value);
+    } else if (candidate.action == RepairAction::ReplaceTriggeringRelation) {
+        script << fmt::format(
+            "replace {} -> {} : {} relation={} pointer=P{}\n",
+            from,
+            to,
+            relation,
+            candidate.replacement_relation.empty() ? replacement_relation_name(relation) : candidate.replacement_relation,
             pointer.id.value);
     } else {
         script << fmt::format(
@@ -133,7 +148,7 @@ std::string_view to_string(RepairAction action) noexcept {
     return "remove_triggering_relation";
 }
 
-RepairCandidate RepairCandidateBuilder::build(
+std::vector<RepairCandidate> RepairCandidateBuilder::build_all(
     const ProjectionStore& store,
     std::string_view branch,
     const Breakpoint& breakpoint) const {
@@ -150,15 +165,42 @@ RepairCandidate RepairCandidateBuilder::build(
         throw std::invalid_argument("breakpoint has no concrete triggering relation in the branch snapshot");
     }
 
-    RepairCandidate candidate;
-    candidate.breakpoint_id = breakpoint.id;
-    candidate.branch = std::string{branch};
-    candidate.action = action_for(breakpoint, *pointer);
-    candidate.trigger = breakpoint.trigger;
-    candidate.pointer = pointer->id;
-    candidate.evidence_ids = breakpoint.evidence_ids;
-    candidate.script = script_for(breakpoint, candidate.action, snapshot, *pointer);
-    return candidate;
+    const auto relation = snapshot.relation_name(pointer->relation);
+    std::vector<RepairCandidate> candidates;
+    candidates.reserve(4);
+    for (const auto action : {
+             RepairAction::RemoveTriggeringRelation,
+             RepairAction::ConstrainTriggeringRelation,
+             RepairAction::DelayTriggeringRelation,
+             RepairAction::ReplaceTriggeringRelation}) {
+        RepairCandidate candidate;
+        candidate.breakpoint_id = breakpoint.id;
+        candidate.branch = std::string{branch};
+        candidate.action = action;
+        candidate.trigger = breakpoint.trigger;
+        candidate.pointer = pointer->id;
+        candidate.evidence_ids = breakpoint.evidence_ids;
+        if (action == RepairAction::ConstrainTriggeringRelation) {
+            candidate.replacement_weight = constrained_weight(*pointer);
+        }
+        if (action == RepairAction::ReplaceTriggeringRelation) {
+            candidate.replacement_relation = replacement_relation_name(relation);
+        }
+        candidate.script = script_for(breakpoint, candidate, snapshot, *pointer);
+        candidates.push_back(std::move(candidate));
+    }
+    return candidates;
+}
+
+RepairCandidate RepairCandidateBuilder::build(
+    const ProjectionStore& store,
+    std::string_view branch,
+    const Breakpoint& breakpoint) const {
+    auto candidates = build_all(store, branch, breakpoint);
+    if (candidates.empty()) {
+        throw std::invalid_argument("no repair candidates generated");
+    }
+    return std::move(candidates.front());
 }
 
 }  // namespace pv

@@ -134,7 +134,7 @@ TEST_CASE("layered targets do not include higher product surfaces") {
 
     const std::vector<std::string> measure_forbidden{
         "pv/guard/", "pv/audit/", "pv/ingest/",
-        "pv/source/", "pv/normalize/", "pv/projection/", "pv/decision/", "apps/"};
+        "pv/source/", "pv/normalize/", "pv/decision/", "apps/"};
     for (const auto& file : files_under({root / "include" / "pv" / "measure", root / "src" / "measure"})) {
         CAPTURE(file.string());
         REQUIRE_FALSE(includes_any_forbidden(file, measure_forbidden));

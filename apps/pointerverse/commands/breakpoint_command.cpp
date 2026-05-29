@@ -16,6 +16,7 @@
 #include "pv/breakpoint/evidence_chain.hpp"
 #include "pv/breakpoint/repair_candidate.hpp"
 #include "pv/cli/script.hpp"
+#include "pv/measure/breakpoint_measure.hpp"
 #include "pv/projection/projection_store.hpp"
 #include "pv/storage/integrity.hpp"
 #include "pv/storage/repository.hpp"
@@ -45,16 +46,31 @@ public:
         find_->add_option("branch", find_branch_, "Branch name")->required();
         find_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
 
+        rank_ = breakpoint->add_subcommand("rank", "Rank causal breakpoints by measured intervention cost");
+        rank_->add_option("branch", rank_branch_, "Branch name")->required();
+        rank_->add_option("--by", rank_by_, "Ranking basis")->default_val("intervention-cost");
+        rank_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
+
         explain_ = breakpoint->add_subcommand("explain", "Explain a causal breakpoint evidence chain");
         explain_->add_option("branch", explain_branch_, "Branch name")->required();
         explain_->add_option("breakpoint-id", explain_id_, "Breakpoint id")->required();
         explain_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
+
+        measure_ = breakpoint->add_subcommand("measure", "Measure a breakpoint by counterfactual intervention cost");
+        measure_->add_option("branch", measure_branch_, "Branch name")->required();
+        measure_->add_option("breakpoint-id", measure_id_, "Breakpoint id")->required();
+        measure_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
 
         repair_ = breakpoint->add_subcommand("repair", "Generate a minimal repair branch script");
         repair_->add_option("branch", repair_branch_, "Branch name")->required();
         repair_->add_option("breakpoint-id", repair_id_, "Breakpoint id")->required();
         repair_->add_option("--out", repair_out_, "Output .pv repair script");
         repair_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
+
+        repair_set_ = breakpoint->add_subcommand("repair-set", "Generate finite counterfactual repair candidates");
+        repair_set_->add_option("branch", repair_set_branch_, "Branch name")->required();
+        repair_set_->add_option("breakpoint-id", repair_set_id_, "Breakpoint id")->required();
+        repair_set_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
 
         fork_ = breakpoint->add_subcommand("fork", "Fork a branch, apply a repair, and verify replay");
         fork_->add_option("branch", fork_branch_, "Branch name")->required();
@@ -73,6 +89,18 @@ public:
                 return EXIT_SUCCESS;
             });
         }
+        if (rank_->parsed()) {
+            return run_checked([&] {
+                if (rank_by_ != "intervention-cost") {
+                    throw std::invalid_argument("breakpoint rank currently supports --by intervention-cost");
+                }
+                const auto repository = Repository::open(store_path_);
+                const ProjectionStore store{repository};
+                const auto measurements = BreakpointMeasure{}.rank(repository, store, rank_branch_);
+                std::cout << render_breakpoint_rank_text(rank_branch_, measurements);
+                return EXIT_SUCCESS;
+            });
+        }
         if (explain_->parsed()) {
             return run_checked([&] {
                 const auto repository = Repository::open(store_path_);
@@ -80,6 +108,16 @@ public:
                 const auto breakpoint = require_breakpoint(store, explain_branch_, explain_id_);
                 const auto chain = EvidenceChainBuilder{}.build(store, explain_branch_, breakpoint);
                 std::cout << render_evidence_chain_text(chain);
+                return EXIT_SUCCESS;
+            });
+        }
+        if (measure_->parsed()) {
+            return run_checked([&] {
+                const auto repository = Repository::open(store_path_);
+                const ProjectionStore store{repository};
+                const auto breakpoint = require_breakpoint(store, measure_branch_, measure_id_);
+                const auto measurement = BreakpointMeasure{}.measure(repository, store, measure_branch_, breakpoint);
+                std::cout << render_breakpoint_measure_text(measurement);
                 return EXIT_SUCCESS;
             });
         }
@@ -103,6 +141,16 @@ public:
                         candidate.breakpoint_id,
                         repair_out_);
                 }
+                return EXIT_SUCCESS;
+            });
+        }
+        if (repair_set_->parsed()) {
+            return run_checked([&] {
+                const auto repository = Repository::open(store_path_);
+                const ProjectionStore store{repository};
+                const auto breakpoint = require_breakpoint(store, repair_set_branch_, repair_set_id_);
+                const auto measurement = BreakpointMeasure{}.measure(repository, store, repair_set_branch_, breakpoint);
+                std::cout << render_repair_set_text(measurement);
                 return EXIT_SUCCESS;
             });
         }
@@ -142,17 +190,26 @@ public:
 
 private:
     CLI::App* find_{nullptr};
+    CLI::App* rank_{nullptr};
     CLI::App* explain_{nullptr};
+    CLI::App* measure_{nullptr};
     CLI::App* repair_{nullptr};
+    CLI::App* repair_set_{nullptr};
     CLI::App* fork_{nullptr};
 
     std::string store_path_{".pvstore"};
     std::string find_branch_;
+    std::string rank_branch_;
+    std::string rank_by_{"intervention-cost"};
     std::string explain_branch_;
     std::string explain_id_;
+    std::string measure_branch_;
+    std::string measure_id_;
     std::string repair_branch_;
     std::string repair_id_;
     std::string repair_out_;
+    std::string repair_set_branch_;
+    std::string repair_set_id_;
     std::string fork_branch_;
     std::string fork_id_;
     std::string fork_new_branch_;
