@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <bit>
 #include <cstring>
+#include <string>
 #include <limits>
 #include <map>
 #include <set>
@@ -249,7 +250,10 @@ CanonicalReader::CanonicalReader(std::span<const std::byte> bytes) : bytes_(byte
 
 std::span<const std::byte> CanonicalReader::read(std::size_t count) {
     if (count > bytes_.size() - offset_) {
-        throw std::runtime_error("canonical stream ended unexpectedly");
+        throw std::runtime_error(
+            "canonical stream ended unexpectedly at offset "
+            + std::to_string(offset_) + " reading " + std::to_string(count)
+            + " of " + std::to_string(bytes_.size()) + " byte(s)");
     }
     const auto out = bytes_.subspan(offset_, count);
     offset_ += count;
