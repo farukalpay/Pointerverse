@@ -6,6 +6,7 @@
 #include <fstream>
 #include <fmt/format.h>
 #include <initializer_list>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
@@ -177,6 +178,70 @@ bool print_commit(std::ostream& output, const CommitResult& result) {
 bool is_rule_command(std::string_view command) noexcept {
     return command == "rule" || command == "when" || command == "require" || command == "forbid"
         || command == "deny";
+}
+
+bool active_at(const PointerSnapshot& pointer, Epoch epoch) noexcept {
+    return pointer.born_at <= epoch && (!pointer.expires_at.has_value() || epoch < *pointer.expires_at);
+}
+
+const ObjectSnapshot* object_by_name(const WorldSnapshot& snapshot, std::string_view name) {
+    for (const auto& object : snapshot.objects) {
+        if (object.name == name) {
+            return &object;
+        }
+    }
+    return nullptr;
+}
+
+std::optional<PointerId> pointer_option(const std::unordered_map<std::string, std::string>& options) {
+    const auto iter = options.find("pointer");
+    const auto id_iter = options.find("id");
+    const auto value = iter != options.end() ? iter->second : (id_iter != options.end() ? id_iter->second : std::string{});
+    if (value.empty()) {
+        return std::nullopt;
+    }
+    try {
+        const auto offset = value.front() == 'P' ? 1U : 0U;
+        return PointerId{std::stoull(value.substr(offset))};
+    } catch (const std::exception&) {
+        throw std::invalid_argument(fmt::format("invalid pointer id '{}'", value));
+    }
+}
+
+const PointerSnapshot* relation_pointer(
+    const WorldSnapshot& snapshot,
+    std::string_view from,
+    std::string_view to,
+    std::string_view relation,
+    std::optional<PointerId> requested) {
+    const auto* from_object = object_by_name(snapshot, from);
+    const auto* to_object = object_by_name(snapshot, to);
+    if (from_object == nullptr || to_object == nullptr) {
+        throw std::invalid_argument("repair relation references an unknown object");
+    }
+
+    const PointerSnapshot* best = nullptr;
+    for (const auto& pointer : snapshot.pointers) {
+        if (requested.has_value() && pointer.id != *requested) {
+            continue;
+        }
+        if (pointer.from != from_object->id || pointer.to != to_object->id) {
+            continue;
+        }
+        if (snapshot.relation_name(pointer.relation) != relation) {
+            continue;
+        }
+        if (!active_at(pointer, snapshot.epoch)) {
+            continue;
+        }
+        if (best == nullptr || pointer.id.value > best->id.value) {
+            best = &pointer;
+        }
+    }
+    if (best == nullptr) {
+        throw std::invalid_argument("repair relation does not match an active pointer");
+    }
+    return best;
 }
 
 std::vector<std::string> morphism_path_from_events(const std::vector<TraceEvent>& events, std::string_view fallback) {
@@ -426,7 +491,7 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
         }
 
         if (command == "help") {
-            output << "=> commands: world new, domain use, domain load, rule, object, link, morphism, set, emit, compose, apply, law add, evolve, inspect, trace export\n";
+            output << "=> commands: world new, domain use, domain load, rule, object, link, unlink, constrain, morphism, set, emit, compose, apply, law add, evolve, inspect, trace export\n";
             return true;
         }
 
@@ -535,6 +600,92 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
                 return false;
             }
             output << fmt::format("=> pointer {} -> {} : {}\n", from, to, relation);
+            return true;
+        }
+
+        if (command == "unlink") {
+            std::string from;
+            std::string arrow;
+            std::string to;
+            std::string colon;
+            std::string relation;
+            stream >> from >> arrow >> to >> colon >> relation;
+            if (from.empty() || arrow != "->" || to.empty() || colon != ":" || relation.empty()) {
+                throw std::invalid_argument("usage: unlink FROM -> TO : RELATION [pointer=P1]");
+            }
+            const auto options = parse_options(stream);
+            const auto snapshot = world.snapshot();
+            const auto* pointer = relation_pointer(snapshot, from, to, relation, pointer_option(options));
+
+            Delta delta;
+            delta.append_unlink(PointerRemove{pointer->id});
+            delta.append_event(TraceEvent{
+                {},
+                "repair.candidate.apply",
+                {
+                    {"action", "remove_triggering_relation"},
+                    {"from", from},
+                    {"to", to},
+                    {"relation", relation},
+                    {"pointer", to_string(pointer->id)}
+                },
+                {}
+            });
+            auto tx = transaction_from_program(
+                snapshot,
+                ScriptCompiler{}.compile_delta(snapshot, delta),
+                TransactionOrigin::Script,
+                fmt::format("unlink {} -> {} : {}", from, to, relation));
+            const auto result = sink_->commit(std::move(tx));
+            if (!print_commit(output, result)) {
+                return false;
+            }
+            output << fmt::format("=> unlinked {} -> {} : {}\n", from, to, relation);
+            return true;
+        }
+
+        if (command == "constrain") {
+            std::string from;
+            std::string arrow;
+            std::string to;
+            std::string colon;
+            std::string relation;
+            stream >> from >> arrow >> to >> colon >> relation;
+            if (from.empty() || arrow != "->" || to.empty() || colon != ":" || relation.empty()) {
+                throw std::invalid_argument("usage: constrain FROM -> TO : RELATION weight=VALUE [pointer=P1]");
+            }
+            const auto options = parse_options(stream);
+            if (!options.contains("weight")) {
+                throw std::invalid_argument("constrain requires weight=VALUE");
+            }
+            const auto snapshot = world.snapshot();
+            const auto* pointer = relation_pointer(snapshot, from, to, relation, pointer_option(options));
+            const auto weight = double_option(options, "weight", pointer->weight.value);
+
+            Delta delta;
+            delta.append_set_pointer_weight(pointer->id, Weight{weight});
+            delta.append_event(TraceEvent{
+                {},
+                "repair.candidate.apply",
+                {
+                    {"action", "constrain_triggering_relation"},
+                    {"from", from},
+                    {"to", to},
+                    {"relation", relation},
+                    {"pointer", to_string(pointer->id)}
+                },
+                {{"weight", weight}}
+            });
+            auto tx = transaction_from_program(
+                snapshot,
+                ScriptCompiler{}.compile_delta(snapshot, delta),
+                TransactionOrigin::Script,
+                fmt::format("constrain {} -> {} : {}", from, to, relation));
+            const auto result = sink_->commit(std::move(tx));
+            if (!print_commit(output, result)) {
+                return false;
+            }
+            output << fmt::format("=> constrained {} -> {} : {} weight={:.12g}\n", from, to, relation, weight);
             return true;
         }
 

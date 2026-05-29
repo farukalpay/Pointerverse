@@ -17,6 +17,7 @@ void register_pointerverse_commands(cli_app::CommandRegistry& registry) {
     registry.add(make_sentinel_command());
     registry.add(make_surface_command());
     registry.add(make_pack_command());
+    registry.add(make_breakpoint_command());
 }
 
 }  // namespace pv::app

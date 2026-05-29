@@ -140,6 +140,14 @@ TEST_CASE("layered targets do not include higher product surfaces") {
         REQUIRE_FALSE(includes_any_forbidden(file, measure_forbidden));
         REQUIRE(read_file(file).find("risk_points") == std::string::npos);
     }
+
+    const std::vector<std::string> breakpoint_forbidden{
+        "pv/guard/", "pv/audit/", "pv/ingest/", "pv/source/", "pv/normalize/",
+        "pv/decision/", "apps/"};
+    for (const auto& file : files_under({root / "include" / "pv" / "breakpoint", root / "src" / "breakpoint"})) {
+        CAPTURE(file.string());
+        REQUIRE_FALSE(includes_any_forbidden(file, breakpoint_forbidden));
+    }
 }
 
 TEST_CASE("pointerverse main stays a registry entry point") {

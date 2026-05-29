@@ -209,6 +209,14 @@ add_library(pointerverse_projection
 pointerverse_configure_target(pointerverse_projection)
 target_link_libraries(pointerverse_projection PUBLIC pointerverse_storage)
 
+add_library(pointerverse_breakpoint
+    src/breakpoint/breakpoint_finder.cpp
+    src/breakpoint/evidence_chain.cpp
+    src/breakpoint/repair_candidate.cpp
+)
+pointerverse_configure_target(pointerverse_breakpoint)
+target_link_libraries(pointerverse_breakpoint PUBLIC pointerverse_projection)
+
 add_library(pointerverse_decision
     src/decision/decision_report.cpp
     src/decision/signal_model.cpp
@@ -269,12 +277,14 @@ target_link_libraries(pointerverse_sdk
         pointerverse_source
         pointerverse_normalize
         pointerverse_projection
+        pointerverse_breakpoint
         pointerverse_decision
 )
 
 add_executable(pointerverse
     apps/pointerverse/main.cpp
     apps/pointerverse/commands/audit_command.cpp
+    apps/pointerverse/commands/breakpoint_command.cpp
     apps/pointerverse/commands/command_utils.cpp
     apps/pointerverse/commands/commands.cpp
     apps/pointerverse/commands/decide_command.cpp
@@ -302,6 +312,7 @@ target_link_libraries(pointerverse
         pointerverse_source
         pointerverse_normalize
         pointerverse_projection
+        pointerverse_breakpoint
         pointerverse_decision
         fmt::fmt
 )
@@ -375,6 +386,9 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/measure/measurement_verifier_tests.cpp
         tests/measure/risk_functional_tests.cpp
         tests/audit/report_tests.cpp
+        tests/breakpoint/breakpoint_finder_tests.cpp
+        tests/breakpoint/evidence_chain_tests.cpp
+        tests/breakpoint/repair_candidate_tests.cpp
         tests/law/law_tests.cpp
         tests/query/query_tests.cpp
         tests/query/repository_query_tests.cpp
@@ -411,6 +425,7 @@ if(POINTERVERSE_BUILD_TESTS)
             pointerverse_source
             pointerverse_normalize
             pointerverse_projection
+            pointerverse_breakpoint
             pointerverse_decision
             pointerverse_measure
             pointerverse_audit
