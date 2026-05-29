@@ -123,18 +123,41 @@ std::vector<CommitRecord> RepositoryEngine::history(std::string_view branch) con
 }
 
 StoredCommit RepositoryEngine::stored_commit(CommitId id) const {
-    auto stored = objects_.get_canonical<StoredCommit>(id.value);
-    stored.record.id = id;
-    return stored;
+    try {
+        auto stored = objects_.get_canonical<StoredCommit>(id.value);
+        stored.record.id = id;
+        return stored;
+    } catch (const std::exception& error) {
+        throw std::runtime_error(
+            "stored commit decode failed for " + to_hex(id.value) + ": " + error.what());
+    }
 }
 
 CommitRecord RepositoryEngine::commit_record(CommitId id) const {
     auto stored = stored_commit(id);
     auto record = stored.record;
     record.id = id;
-    record.events = objects_.get_canonical<std::vector<TraceEvent>>(stored.trace_object);
-    record.law_statuses = objects_.get_canonical<std::vector<LawStatus>>(stored.law_status_object);
-    record.violations = objects_.get_canonical<std::vector<LawViolation>>(stored.violation_object);
+    try {
+        record.events = objects_.get_canonical<std::vector<TraceEvent>>(stored.trace_object);
+    } catch (const std::exception& error) {
+        throw std::runtime_error(
+            "trace object decode failed for commit " + to_hex(id.value)
+            + " object " + to_hex(stored.trace_object) + ": " + error.what());
+    }
+    try {
+        record.law_statuses = objects_.get_canonical<std::vector<LawStatus>>(stored.law_status_object);
+    } catch (const std::exception& error) {
+        throw std::runtime_error(
+            "law status object decode failed for commit " + to_hex(id.value)
+            + " object " + to_hex(stored.law_status_object) + ": " + error.what());
+    }
+    try {
+        record.violations = objects_.get_canonical<std::vector<LawViolation>>(stored.violation_object);
+    } catch (const std::exception& error) {
+        throw std::runtime_error(
+            "violation object decode failed for commit " + to_hex(id.value)
+            + " object " + to_hex(stored.violation_object) + ": " + error.what());
+    }
     return record;
 }
 
