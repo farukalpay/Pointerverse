@@ -68,3 +68,41 @@ TEST_CASE("pointer edges are typed relation arrows") {
     REQUIRE(edge.causal_role == CausalRole::Generative);
     REQUIRE(edge.active_at(world.epoch()));
 }
+
+TEST_CASE("evolution writes deterministic temporal graph edges") {
+    World world{"seed"};
+    Verifier verifier;
+    verifier.add_builtin("reject_dangling_pointer");
+    verifier.add_builtin("bounded_weight");
+    verifier.add_builtin("preserve_relation_type");
+    verifier.add_builtin("no_invalid_epoch_reference");
+
+    REQUIRE(world.commit(world.object_delta("A", "Node"), verifier).accepted);
+    REQUIRE(world.commit(world.object_delta("B", "Node"), verifier).accepted);
+    REQUIRE(world.commit(world.link_delta(
+        world.object_by_name("A"),
+        world.object_by_name("B"),
+        "causes",
+        0.6,
+        CausalRole::Generative), verifier).accepted);
+
+    const auto before_pointers = world.pointers().size();
+    const auto result = world.evolve(1, verifier);
+
+    REQUIRE(result.completed_steps == 1);
+    REQUIRE(world.pointers().size() == before_pointers + 2);
+
+    const auto snapshot = world.snapshot();
+    std::size_t evolution_edges = 0;
+    for (const auto& pointer : snapshot.pointers) {
+        if (pointer.law_domain != "evolution") {
+            continue;
+        }
+        REQUIRE(pointer.from == pointer.to);
+        REQUIRE(pointer.causal_role == CausalRole::Transformative);
+        REQUIRE(snapshot.relation_name(pointer.relation) == "evolves_to");
+        REQUIRE(pointer.born_at == world.epoch());
+        evolution_edges += 1;
+    }
+    REQUIRE(evolution_edges == 2);
+}

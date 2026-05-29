@@ -19,8 +19,12 @@ struct MeasurementIndexEntry {
     CommitId commit;
     Hash256 spec_hash;
     Hash256 measurement_object;
+    Hash256 measurement_identity_hash;
+    Hash256 component_root;
+    Hash256 evidence_root;
     RiskVector risk;
     std::uint64_t projection{0};
+    bool needs_rebuild{false};
 
     friend bool operator==(const MeasurementIndexEntry&, const MeasurementIndexEntry&) = default;
 };

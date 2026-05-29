@@ -71,7 +71,11 @@ TEST_CASE("projection policy does not affect measured risk hash") {
 
     auto left_spec = default_measurement_spec();
     auto right_spec = default_measurement_spec();
-    right_spec.projection.structural_weight = 7;
+    for (auto& term : right_spec.projection.terms) {
+        if (term.namespace_id == "structural" && term.component_id == "forward_cone_mass") {
+            term.weight_num = 7;
+        }
+    }
 
     const auto left = MeasuredRiskFunctional{}.measure_commit(repo, "main", record->id, left_spec);
     const auto right = MeasuredRiskFunctional{}.measure_commit(repo, "main", record->id, right_spec);

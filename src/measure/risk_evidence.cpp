@@ -63,6 +63,13 @@ CommitId read_commit(CanonicalReader& reader) {
 
 }  // namespace
 
+std::string measured_component_id(const MeasuredComponent& component) {
+    if (!component.namespace_id.empty() && !component.functional_id.empty()) {
+        return component.namespace_id + "." + component.functional_id;
+    }
+    return component.name;
+}
+
 void encode(CanonicalWriter& writer, const RiskEvidence& value) {
     auto evidence = value;
     sort_objects(evidence.objects);

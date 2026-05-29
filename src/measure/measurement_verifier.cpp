@@ -8,6 +8,7 @@
 #include <fmt/format.h>
 
 #include "pv/hash/canonical.hpp"
+#include "pv/measure/component_record.hpp"
 #include "pv/measure/measurement_store.hpp"
 #include "pv/measure/risk_evidence.hpp"
 #include "pv/measure/risk_functional.hpp"
@@ -31,7 +32,8 @@ MeasurementVerifier::MeasurementVerifier(Repository& repository) : repository_(r
 MeasurementVerificationReport MeasurementVerifier::verify_branch(
     std::string_view branch,
     const MeasurementSpec& spec,
-    const Verifier* verifier) const {
+    const Verifier* verifier,
+    MeasurementVerificationOptions options) const {
     MeasurementVerificationReport report;
     report.branch = std::string{branch};
     report.spec_hash = measurement_spec_hash(spec);
@@ -53,17 +55,44 @@ MeasurementVerificationReport MeasurementVerifier::verify_branch(
 
     for (const auto& entry : store.index().branch_entries(branch, report.spec_hash)) {
         report.measurements_checked += 1;
+        if (entry.needs_rebuild) {
+            const auto message = "measurement cache entry needs rebuild: " + short_hash(entry.measurement_object);
+            if (options.strict_cache) {
+                add_error(report, message);
+            } else {
+                report.warnings.push_back(message);
+            }
+            continue;
+        }
         try {
             const auto record = store.load_record(entry.measurement_object);
             if (record.commit != entry.commit || record.spec_hash != report.spec_hash) {
                 add_error(report, "measurement index row does not match record: " + short_hash(entry.measurement_object));
                 continue;
             }
-            if (record.risk != entry.risk) {
-                add_error(report, "measurement index risk differs from record: " + short_hash(entry.measurement_object));
+            if (record.legacy) {
+                const auto message = "legacy measurement record needs rebuild: " + short_hash(entry.measurement_object);
+                if (options.strict_cache) {
+                    add_error(report, message);
+                } else {
+                    report.warnings.push_back(message);
+                }
+                continue;
+            }
+            if (record.measurement_identity_hash != entry.measurement_identity_hash) {
+                add_error(report, "measurement identity differs from index: " + short_hash(entry.measurement_object));
+            }
+            if (record.component_root != measurement_component_root(record.component_objects)) {
+                add_error(report, "measurement component root mismatch: " + short_hash(entry.measurement_object));
             }
             if (record.evidence_root != measurement_evidence_root(record.evidence_objects)) {
                 add_error(report, "measurement evidence root mismatch: " + short_hash(entry.measurement_object));
+            }
+            for (const auto component_object : record.component_objects) {
+                const auto component = decode_measurement_component_record_bytes(repository_.objects().get_bytes(component_object));
+                if (measurement_component_hash(component) != component_object) {
+                    add_error(report, "measurement component object hash mismatch: " + short_hash(component_object));
+                }
             }
             for (const auto evidence_object : record.evidence_objects) {
                 const auto evidence = decode_risk_evidence_bytes(repository_.objects().get_bytes(evidence_object));
@@ -76,13 +105,16 @@ MeasurementVerificationReport MeasurementVerifier::verify_branch(
             if (record.commit_root != recomputed.commit_root) {
                 add_error(report, "measurement commit root mismatch: " + short_hash(entry.measurement_object));
             }
-            if (record.risk != recomputed.value) {
-                add_error(report, "measurement risk differs from recomputation: " + short_hash(entry.measurement_object));
+            if (entry.risk != recomputed.value) {
+                add_error(report, "measurement index risk differs from recomputation: " + short_hash(entry.measurement_object));
+            }
+            if (record.component_root != recomputed.component_root) {
+                add_error(report, "measurement component root differs from recomputation: " + short_hash(entry.measurement_object));
             }
             if (record.evidence_root != recomputed.evidence_root) {
                 add_error(report, "measurement evidence root differs from recomputation: " + short_hash(entry.measurement_object));
             }
-            if (record.measurement_hash != recomputed.measurement_hash) {
+            if (record.measurement_identity_hash != recomputed.measurement_hash) {
                 add_error(report, "measurement hash differs from recomputation: " + short_hash(entry.measurement_object));
             }
         } catch (const std::exception& error) {

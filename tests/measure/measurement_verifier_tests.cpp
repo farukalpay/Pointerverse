@@ -11,6 +11,7 @@
 #include "pv/kernel/canonical_codec.hpp"
 #include "pv/measure/measurement_store.hpp"
 #include "pv/measure/measurement_verifier.hpp"
+#include "pv/storage/index_store.hpp"
 #include "pv/storage/repository.hpp"
 
 using namespace pv;
@@ -67,7 +68,7 @@ TEST_CASE("measurement verifier detects tampered measurement object") {
     const auto spec = default_measurement_spec();
     const auto measured = MeasurementStore{repo}.measure_or_load_commit("main", commit, spec);
 
-    overwrite_file(repo.objects().object_path(measured.record.measurement_hash), "tampered");
+    overwrite_file(repo.objects().object_path(measured.record.measurement_object_hash), "tampered");
     const auto report = MeasurementVerifier{repo}.verify_branch("main", spec);
 
     REQUIRE_FALSE(report.clean());
@@ -84,16 +85,22 @@ TEST_CASE("measurement verifier detects changed evidence root") {
     auto measured = store.measure_or_load_commit("main", commit, spec);
 
     measured.record.evidence_root = Hash256{};
-    measured.record.id = measurement_record_hash(measured.record);
-    measured.record.measurement_hash = measured.record.id;
+    measured.record.measurement_identity_hash = measurement_identity_hash(measured.record);
+    measured.record.measurement_object_hash = measurement_record_hash(measured.record);
+    measured.record.id = measured.record.measurement_object_hash;
+    measured.record.measurement_hash = measured.record.measurement_identity_hash;
     const auto object = repo.objects().put_bytes(canonical_encode(measured.record));
     MeasurementIndex{repo.root()}.upsert("main", MeasurementIndexEntry{
         "main",
         measured.record.commit,
         measured.record.spec_hash,
         object,
+        measured.record.measurement_identity_hash,
+        measured.record.component_root,
+        measured.record.evidence_root,
         measured.record.risk,
-        measured.record.projection
+        measured.record.projection,
+        false
     });
 
     const auto report = MeasurementVerifier{repo}.verify_branch("main", spec);
@@ -115,5 +122,40 @@ TEST_CASE("measurement verifier detects missing evidence object") {
     const auto report = MeasurementVerifier{repo}.verify_branch("main", spec);
 
     REQUIRE_FALSE(report.clean());
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("measurement verifier strict cache fails stale legacy index entries") {
+    const auto root = temp_repo_path("strict_stale");
+    auto repo = Repository::init(root);
+    (void)repo.create_branch("main", World{"seed"});
+    const auto commit = append_object(repo, "main", "A");
+    auto store = MeasurementStore{repo};
+    const auto spec = default_measurement_spec();
+    const auto spec_hash = store.put_spec(spec);
+
+    IndexPayloadWriter writer;
+    writer.u64(1);
+    writer.string("main");
+    writer.hash(commit.value);
+    writer.hash(spec_hash);
+    writer.hash(Hash256{});
+    writer.u64(1);
+    writer.u64(0);
+    writer.u64(0);
+    writer.u64(0);
+    writer.u64(1);
+    IndexStore{repo.root(), "measurements.idx", "PVMEASUREIDX1"}.write_payload(writer.bytes());
+
+    const auto soft = MeasurementVerifier{repo}.verify_branch("main", spec);
+    REQUIRE(soft.clean());
+    REQUIRE_FALSE(soft.warnings.empty());
+
+    const auto strict = MeasurementVerifier{repo}.verify_branch(
+        "main",
+        spec,
+        nullptr,
+        MeasurementVerificationOptions{true});
+    REQUIRE_FALSE(strict.clean());
     std::filesystem::remove_all(root);
 }

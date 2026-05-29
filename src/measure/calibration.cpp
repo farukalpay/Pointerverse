@@ -26,24 +26,39 @@ void write_index_entry(CanonicalWriter& writer, const MeasurementIndexEntry& ent
     write_commit_id(writer, entry.commit);
     writer.hash(entry.spec_hash);
     writer.hash(entry.measurement_object);
+    writer.hash(entry.measurement_identity_hash);
+    writer.hash(entry.component_root);
+    writer.hash(entry.evidence_root);
     writer.u64(entry.risk.structural);
     writer.u64(entry.risk.law_distance);
     writer.u64(entry.risk.repair_distance);
     writer.u64(entry.risk.surprise);
     writer.u64(entry.projection);
+    writer.u8(entry.needs_rebuild ? 1U : 0U);
 }
 
-MeasurementIndexEntry read_index_entry(CanonicalReader& reader) {
+MeasurementIndexEntry read_index_entry(CanonicalReader& reader, bool v2) {
     MeasurementIndexEntry entry;
     entry.branch = reader.string();
     entry.commit = read_commit_id(reader);
     entry.spec_hash = reader.hash();
     entry.measurement_object = reader.hash();
+    if (v2) {
+        entry.measurement_identity_hash = reader.hash();
+        entry.component_root = reader.hash();
+        entry.evidence_root = reader.hash();
+    } else {
+        entry.measurement_identity_hash = entry.measurement_object;
+        entry.needs_rebuild = true;
+    }
     entry.risk.structural = reader.u64();
     entry.risk.law_distance = reader.u64();
     entry.risk.repair_distance = reader.u64();
     entry.risk.surprise = reader.u64();
     entry.projection = reader.u64();
+    if (v2) {
+        entry.needs_rebuild = reader.u8() != 0;
+    }
     return entry;
 }
 
@@ -67,7 +82,7 @@ void sort_refs(std::vector<CalibrationBaselineRef>& refs) {
 }  // namespace
 
 void encode(CanonicalWriter& writer, const CalibrationBaseline& baseline) {
-    writer.string("CalibrationBaseline:v1");
+    writer.string("CalibrationBaseline:v2");
     writer.string(baseline.branch);
     write_commit_id(writer, baseline.up_to_commit);
     writer.hash(baseline.spec_hash);
@@ -78,7 +93,10 @@ void encode(CanonicalWriter& writer, const CalibrationBaseline& baseline) {
 }
 
 CalibrationBaseline decode_calibration_baseline(CanonicalReader& reader) {
-    reader.expect_tag("CalibrationBaseline:v1");
+    const auto tag = reader.string();
+    if (tag != "CalibrationBaseline:v1" && tag != "CalibrationBaseline:v2") {
+        throw std::runtime_error("canonical stream has unexpected type tag");
+    }
     CalibrationBaseline baseline;
     baseline.branch = reader.string();
     baseline.up_to_commit = read_commit_id(reader);
@@ -86,7 +104,7 @@ CalibrationBaseline decode_calibration_baseline(CanonicalReader& reader) {
     const auto sample_size = reader.u64();
     baseline.sample.reserve(static_cast<std::size_t>(sample_size));
     for (std::uint64_t index = 0; index < sample_size; ++index) {
-        baseline.sample.push_back(read_index_entry(reader));
+        baseline.sample.push_back(read_index_entry(reader, tag == "CalibrationBaseline:v2"));
     }
     baseline.baseline_hash = calibration_baseline_hash(baseline);
     return baseline;
@@ -192,9 +210,13 @@ CalibrationBaseline CalibrationStore::create(
             std::string{branch},
             measured.record.commit,
             measured.record.spec_hash,
-            measured.record.measurement_hash,
+            measured.record.measurement_object_hash,
+            measured.record.measurement_identity_hash,
+            measured.record.component_root,
+            measured.record.evidence_root,
             measured.record.risk,
-            measured.record.projection
+            measured.record.projection,
+            false
         });
         if (record.id == up_to_commit) {
             found = true;

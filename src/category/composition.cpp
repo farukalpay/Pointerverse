@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "pv/category/composition.hpp"
 
+#include <algorithm>
 #include <fmt/format.h>
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace pv {
@@ -32,6 +34,45 @@ Delta composition_failure(std::string_view name, std::string reason) {
         {}
     });
     return delta;
+}
+
+bool active_at(const PointerSnapshot& pointer, Epoch epoch) noexcept {
+    return pointer.born_at <= epoch && (!pointer.expires_at.has_value() || epoch < *pointer.expires_at);
+}
+
+std::optional<RelationType> find_relation(const WorldSnapshot& snapshot, std::string_view name) {
+    for (const auto& [id, candidate] : snapshot.relation_names) {
+        if (candidate == name) {
+            return RelationType{id};
+        }
+    }
+    return std::nullopt;
+}
+
+RelationType intern_relation_delta(Delta& delta, const WorldSnapshot& snapshot, std::string name) {
+    if (const auto existing = find_relation(snapshot, name); existing.has_value()) {
+        return *existing;
+    }
+
+    std::uint32_t next = 1;
+    for (const auto& [id, _] : snapshot.relation_names) {
+        next = std::max(next, id + 1);
+    }
+    const auto relation = RelationType{next};
+    delta.append_intern_relation(std::move(name), relation);
+    return relation;
+}
+
+void expire_prior_morphism_edges(Delta& delta, const WorldSnapshot& snapshot, ObjectId object, RelationType relation) {
+    for (const auto& pointer : snapshot.pointers) {
+        if (pointer.from == object
+            && pointer.to == object
+            && pointer.relation == relation
+            && pointer.law_domain == "morphism"
+            && active_at(pointer, snapshot.epoch)) {
+            delta.append_unlink(PointerRemove{pointer.id});
+        }
+    }
 }
 
 }  // namespace
@@ -70,20 +111,39 @@ MorphismSignature DefinedMorphism::signature() const {
 
 Delta DefinedMorphism::apply(const WorldSnapshot& snapshot, const Selection& selection) const {
     Delta delta;
+    std::optional<RelationType> relation;
+    std::size_t transformed = 0;
     for (const auto object : selection.objects) {
         const auto* view = snapshot.object(object);
         if (view == nullptr || view->type != signature_.domain) {
             continue;
         }
+        if (!relation.has_value()) {
+            relation = intern_relation_delta(delta, snapshot, fmt::format("morphism.{}", name_));
+        }
+        expire_prior_morphism_edges(delta, snapshot, object, *relation);
         if (signature_.domain != signature_.codomain) {
             delta.append_update(ObjectUpdate{ObjectRef{object}, signature_.codomain, std::nullopt});
         }
+        delta.append_link(PointerCreate{
+            ObjectRef{object},
+            ObjectRef{object},
+            *relation,
+            CausalRole::Transformative,
+            Weight{1.0},
+            "morphism",
+            {}
+        });
+        transformed += 1;
     }
     delta.append_event(TraceEvent{
         {},
         "morphism.apply",
         {{"name", name_}},
-        {{"selected_objects", static_cast<double>(selection.objects.size())}}
+        {
+            {"selected_objects", static_cast<double>(selection.objects.size())},
+            {"transformed_objects", static_cast<double>(transformed)}
+        }
     });
     return delta;
 }

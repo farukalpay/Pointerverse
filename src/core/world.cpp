@@ -2,7 +2,9 @@
 #include "pv/core/world.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <fmt/format.h>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <unordered_map>
@@ -24,21 +26,111 @@ bool contains_fact(const WorldSnapshot& snapshot, FactId id) {
     });
 }
 
+bool active_at(const PointerSnapshot& pointer, Epoch epoch) noexcept {
+    return pointer.born_at <= epoch && (!pointer.expires_at.has_value() || epoch < *pointer.expires_at);
+}
+
+std::optional<RelationType> find_relation(const WorldSnapshot& snapshot, std::string_view name) {
+    for (const auto& [id, candidate] : snapshot.relation_names) {
+        if (candidate == name) {
+            return RelationType{id};
+        }
+    }
+    return std::nullopt;
+}
+
+RelationType intern_relation_delta(Delta& delta, const WorldSnapshot& snapshot, std::string name) {
+    if (const auto existing = find_relation(snapshot, name); existing.has_value()) {
+        return *existing;
+    }
+
+    std::uint32_t next = 1;
+    for (const auto& [id, _] : snapshot.relation_names) {
+        next = std::max(next, id + 1);
+    }
+    const auto relation = RelationType{next};
+    delta.append_intern_relation(std::move(name), relation);
+    return relation;
+}
+
+bool participates(ObjectId object, const PointerSnapshot& pointer) noexcept {
+    return pointer.from == object || pointer.to == object;
+}
+
+double clamp_weight(double value) noexcept {
+    if (!std::isfinite(value)) {
+        return 0.0;
+    }
+    return std::clamp(value, 0.0, 1.0);
+}
+
+double activity_weight(const WorldSnapshot& snapshot, ObjectId object) noexcept {
+    double total = 0.0;
+    std::size_t count = 0;
+    for (const auto& pointer : snapshot.pointers) {
+        if (!active_at(pointer, snapshot.epoch)
+            || pointer.law_domain == "evolution"
+            || !participates(object, pointer)) {
+            continue;
+        }
+        total += clamp_weight(pointer.weight.value);
+        count += 1;
+    }
+    if (count == 0) {
+        return 1.0;
+    }
+    return clamp_weight(total / static_cast<double>(count));
+}
+
+bool evolves_object(const ObjectSnapshot& object) noexcept {
+    return object.existence == ExistenceState::Alive || object.existence == ExistenceState::Dormant;
+}
+
 }  // namespace
 
-Delta NoOpEvolution::step(const WorldSnapshot&, Epoch next) const {
+Delta ForwardEvolution::step(const WorldSnapshot& snapshot, Epoch next) const {
     Delta delta;
+    const auto relation = intern_relation_delta(delta, snapshot, "evolves_to");
+
+    for (const auto& pointer : snapshot.pointers) {
+        if (pointer.relation == relation
+            && pointer.law_domain == "evolution"
+            && active_at(pointer, snapshot.epoch)) {
+            delta.append_unlink(PointerRemove{pointer.id});
+        }
+    }
+
+    std::size_t evolved_objects = 0;
+    for (const auto& object : snapshot.objects) {
+        if (!evolves_object(object)) {
+            continue;
+        }
+        delta.append_link(PointerCreate{
+            ObjectRef{object.id},
+            ObjectRef{object.id},
+            relation,
+            CausalRole::Transformative,
+            Weight{activity_weight(snapshot, object.id)},
+            "evolution",
+            {}
+        });
+        evolved_objects += 1;
+    }
+
     delta.append_event(TraceEvent{
         {},
         "world.evolve",
         {{"step_epoch", std::to_string(next.value)}},
-        {}
+        {
+            {"objects", static_cast<double>(evolved_objects)},
+            {"expired_edges", static_cast<double>(delta.unlinks_view().size())}
+        }
     });
     return delta;
 }
 
 EvolutionProgram::EvolutionProgram()
-    : rules_{std::make_shared<NoOpEvolution>()} {}
+    : rules_{std::make_shared<ForwardEvolution>()} {}
 
 EvolutionProgram::EvolutionProgram(std::vector<std::shared_ptr<const EvolutionRule>> rules)
     : rules_(std::move(rules)) {}

@@ -30,11 +30,14 @@ struct RiskEvidence {
 };
 
 struct MeasuredComponent {
+    std::string namespace_id;
+    std::string functional_id;
     std::string name;
     std::uint64_t value{0};
     RiskEvidence evidence;
 };
 
+[[nodiscard]] std::string measured_component_id(const MeasuredComponent& component);
 [[nodiscard]] Hash256 risk_evidence_hash(RiskEvidence evidence);
 void encode(CanonicalWriter& writer, const RiskEvidence& evidence);
 [[nodiscard]] RiskEvidence decode_risk_evidence(CanonicalReader& reader);

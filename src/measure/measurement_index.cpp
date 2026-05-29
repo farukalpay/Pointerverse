@@ -2,6 +2,7 @@
 #include "pv/measure/measurement_index.hpp"
 
 #include <algorithm>
+#include <stdexcept>
 #include <utility>
 
 #include "pv/hash/canonical.hpp"
@@ -33,20 +34,7 @@ void sort_entries(std::vector<MeasurementIndexEntry>& entries) {
     });
 }
 
-}  // namespace
-
-MeasurementIndex::MeasurementIndex(std::filesystem::path root)
-    : store_(std::move(root), "measurements.idx", "PVMEASUREIDX1") {}
-
-bool MeasurementIndex::exists() const {
-    return store_.exists();
-}
-
-std::vector<MeasurementIndexEntry> MeasurementIndex::entries() const {
-    if (!exists()) {
-        return {};
-    }
-    const auto payload = store_.read_payload();
+std::vector<MeasurementIndexEntry> read_entries_v1(const std::vector<std::byte>& payload) {
     IndexPayloadReader reader{payload};
     const auto size = reader.u64();
     std::vector<MeasurementIndexEntry> entries;
@@ -57,15 +45,71 @@ std::vector<MeasurementIndexEntry> MeasurementIndex::entries() const {
         entry.commit = read_commit_id(reader);
         entry.spec_hash = reader.hash();
         entry.measurement_object = reader.hash();
+        entry.measurement_identity_hash = entry.measurement_object;
         entry.risk.structural = reader.u64();
         entry.risk.law_distance = reader.u64();
         entry.risk.repair_distance = reader.u64();
         entry.risk.surprise = reader.u64();
         entry.projection = reader.u64();
+        entry.needs_rebuild = true;
         entries.push_back(std::move(entry));
     }
     reader.expect_end();
     return entries;
+}
+
+std::vector<MeasurementIndexEntry> read_entries_v2(const std::vector<std::byte>& payload) {
+    IndexPayloadReader reader{payload};
+    if (reader.string() != "MeasurementIndex:v2") {
+        throw std::runtime_error("measurement index payload has unsupported version");
+    }
+    const auto size = reader.u64();
+    std::vector<MeasurementIndexEntry> entries;
+    entries.reserve(static_cast<std::size_t>(size));
+    for (std::uint64_t index = 0; index < size; ++index) {
+        MeasurementIndexEntry entry;
+        entry.branch = reader.string();
+        entry.commit = read_commit_id(reader);
+        entry.spec_hash = reader.hash();
+        entry.measurement_object = reader.hash();
+        entry.measurement_identity_hash = reader.hash();
+        entry.component_root = reader.hash();
+        entry.evidence_root = reader.hash();
+        entry.risk.structural = reader.u64();
+        entry.risk.law_distance = reader.u64();
+        entry.risk.repair_distance = reader.u64();
+        entry.risk.surprise = reader.u64();
+        entry.projection = reader.u64();
+        entry.needs_rebuild = reader.boolean();
+        entries.push_back(std::move(entry));
+    }
+    reader.expect_end();
+    return entries;
+}
+
+}  // namespace
+
+MeasurementIndex::MeasurementIndex(std::filesystem::path root)
+    : store_(std::move(root), "measurements.idx", "PVMEASUREIDX2") {}
+
+bool MeasurementIndex::exists() const {
+    return store_.exists();
+}
+
+std::vector<MeasurementIndexEntry> MeasurementIndex::entries() const {
+    if (!exists()) {
+        return {};
+    }
+    try {
+        const auto payload = store_.read_payload();
+        return read_entries_v2(payload);
+    } catch (const std::exception&) {
+        IndexStore legacy{store_.root(), "measurements.idx", "PVMEASUREIDX1"};
+        if (!legacy.exists()) {
+            throw;
+        }
+        return read_entries_v1(legacy.read_payload());
+    }
 }
 
 std::optional<MeasurementIndexEntry> MeasurementIndex::find(CommitId commit, Hash256 spec) const {
@@ -105,11 +149,24 @@ std::vector<MeasurementIndexEntry> MeasurementIndex::branch_entries(
 }
 
 IndexFileStatus MeasurementIndex::check() const {
-    return store_.check();
+    auto status = store_.check();
+    if (!status.exists || status.checksum_ok) {
+        return status;
+    }
+    IndexStore legacy{store_.root(), "measurements.idx", "PVMEASUREIDX1"};
+    auto legacy_status = legacy.check();
+    if (legacy_status.checksum_ok) {
+        legacy_status.error = "legacy measurement index needs rebuild";
+    }
+    return legacy_status;
 }
 
 Hash256 MeasurementIndex::checksum() const {
-    return store_.checksum();
+    try {
+        return store_.checksum();
+    } catch (const std::exception&) {
+        return IndexStore{store_.root(), "measurements.idx", "PVMEASUREIDX1"}.checksum();
+    }
 }
 
 void MeasurementIndex::write(std::vector<MeasurementIndexEntry> entries) const {
@@ -117,17 +174,22 @@ void MeasurementIndex::write(std::vector<MeasurementIndexEntry> entries) const {
     entries.erase(std::unique(entries.begin(), entries.end(), same_key), entries.end());
 
     IndexPayloadWriter writer;
+    writer.string("MeasurementIndex:v2");
     writer.u64(entries.size());
     for (const auto& entry : entries) {
         writer.string(entry.branch);
         write_commit_id(writer, entry.commit);
         writer.hash(entry.spec_hash);
         writer.hash(entry.measurement_object);
+        writer.hash(entry.measurement_identity_hash);
+        writer.hash(entry.component_root);
+        writer.hash(entry.evidence_root);
         writer.u64(entry.risk.structural);
         writer.u64(entry.risk.law_distance);
         writer.u64(entry.risk.repair_distance);
         writer.u64(entry.risk.surprise);
         writer.u64(entry.projection);
+        writer.boolean(entry.needs_rebuild);
     }
     store_.write_payload(writer.bytes());
 }

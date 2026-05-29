@@ -23,7 +23,9 @@ std::uint64_t canonical_fixed_magnitude(double magnitude) noexcept {
 
 MeasuredComponent LawRiskMeasure::measure(const CommitRecord& record) const {
     MeasuredComponent component;
-    component.name = "law";
+    component.namespace_id = "law";
+    component.functional_id = "total_magnitude";
+    component.name = "law.total_magnitude";
     component.evidence.component = component.name;
     component.evidence.input_root = record.before_root;
     component.evidence.output_root = record.violation_hash;
@@ -55,4 +57,3 @@ MeasuredComponent LawRiskMeasure::measure(const CommitRecord& record) const {
 }
 
 }  // namespace pv
-

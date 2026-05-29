@@ -1451,7 +1451,7 @@ CommitRecord decode_commit_record_body_v2(CanonicalReader& reader) {
     return record;
 }
 
-CommitRecord decode_commit_record_body(CanonicalReader& reader) {
+CommitRecord decode_commit_record_body_with_proof(CanonicalReader& reader, bool legacy_proof) {
     CommitRecord record;
     record.parent = decode_optional_commit_id(reader);
     const auto parent_count = checked_count(reader.u64());
@@ -1480,7 +1480,7 @@ CommitRecord decode_commit_record_body(CanonicalReader& reader) {
     record.write_set_hash = reader.hash();
     record.proof_hash = reader.hash();
     if (reader.u8() != 0) {
-        record.proof = decode_commit_proof(reader);
+        record.proof = legacy_proof ? decode_commit_proof_v1(reader) : decode_commit_proof(reader);
     }
     record.accepted = reader.u8() != 0;
     record.origin = static_cast<TransactionOrigin>(reader.u8());
@@ -1488,8 +1488,30 @@ CommitRecord decode_commit_record_body(CanonicalReader& reader) {
     return record;
 }
 
+CommitRecord decode_commit_record_body(CanonicalReader& reader) {
+    return decode_commit_record_body_with_proof(reader, false);
+}
+
+CommitRecord decode_commit_record_body_legacy_proof(CanonicalReader& reader) {
+    return decode_commit_record_body_with_proof(reader, true);
+}
+
 CommitRecord decode_commit_record_body_v4(CanonicalReader& reader) {
     auto record = decode_commit_record_body(reader);
+    record.before_root = reader.hash();
+    record.after_root = reader.hash();
+    record.checkpoint_snapshot_object = reader.hash();
+    record.checkpoint_distance = reader.u64();
+    const auto graph_roots = checked_count(reader.u64());
+    record.graph_page_roots.reserve(static_cast<std::size_t>(graph_roots));
+    for (std::uint64_t index = 0; index < graph_roots; ++index) {
+        record.graph_page_roots.push_back(reader.hash());
+    }
+    return record;
+}
+
+CommitRecord decode_commit_record_body_v4_legacy_proof(CanonicalReader& reader) {
+    auto record = decode_commit_record_body_legacy_proof(reader);
     record.before_root = reader.hash();
     record.after_root = reader.hash();
     record.checkpoint_snapshot_object = reader.hash();

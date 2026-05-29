@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "pv/law/verifier.hpp"
+#include "pv/measure/component_record.hpp"
 #include "pv/measure/measurement_spec.hpp"
 #include "pv/measure/repair_measure.hpp"
 #include "pv/measure/risk_evidence.hpp"
@@ -21,12 +22,18 @@ struct MeasuredRisk {
     CommitId commit;
     Hash256 commit_root;
     Hash256 spec_hash;
+    RiskLatticeElement lattice;
     RiskVector value;
     std::uint64_t projection{0};
     ProjectionResult projection_result;
+    std::vector<MeasuredComponent> components;
+    std::vector<MeasurementComponentRecord> component_records;
+    Hash256 component_root;
     std::vector<RiskEvidence> evidence;
     Hash256 evidence_root;
     Hash256 measurement_object;
+    Hash256 measurement_identity_hash;
+    Hash256 measurement_object_hash;
     Hash256 measurement_hash;
 };
 
@@ -73,13 +80,12 @@ public:
         RepairSearchOptions repair_options = {}) const;
 };
 
-[[nodiscard]] RiskVector joined_risk(const std::vector<MeasuredRisk>& measured) noexcept;
+[[nodiscard]] RiskVector joined_risk(const std::vector<MeasuredRisk>& measured);
+[[nodiscard]] RiskLatticeElement joined_lattice(const std::vector<MeasuredRisk>& measured);
 [[nodiscard]] Hash256 measured_risk_hash(
     CommitId commit,
     Hash256 commit_root,
     Hash256 spec_hash,
-    RiskVector value,
-    std::uint64_t projection,
-    std::vector<RiskEvidence> evidence);
+    std::vector<MeasuredComponent> components);
 
 }  // namespace pv

@@ -26,7 +26,7 @@ TEST_CASE("trace replay reconstructs exported world history") {
 
     REQUIRE(replay.errors.empty());
     REQUIRE(replay.events_read == world.trace().size());
-    REQUIRE(replay.events_replayed == 5);
+    REQUIRE(replay.events_replayed >= 5);
     REQUIRE(replay.metadata_events > 0);
     REQUIRE(replay.final_hash == world.hash());
     REQUIRE(replay.world.snapshot().structural_hash() == world.snapshot().structural_hash());

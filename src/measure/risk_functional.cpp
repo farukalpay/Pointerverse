@@ -2,6 +2,7 @@
 #include "pv/measure/risk_functional.hpp"
 
 #include <algorithm>
+#include <utility>
 
 #include "pv/hash/hasher.hpp"
 #include "pv/kernel/canonical_codec.hpp"
@@ -17,20 +18,25 @@ namespace pv {
 namespace {
 
 void add_component(MeasuredRisk& risk, const MeasuredComponent& component) {
-    if (component.name == "structural") {
-        risk.value.structural = component.value;
-    } else if (component.name == "law") {
-        risk.value.law_distance = component.value;
-    } else if (component.name == "repair") {
-        risk.value.repair_distance = component.value;
-    } else if (component.name == "surprise") {
-        risk.value.surprise = component.value;
+    auto namespace_id = component.namespace_id;
+    auto functional_id = component.functional_id;
+    if (namespace_id.empty()) {
+        namespace_id = component.name;
     }
+    if (functional_id.empty()) {
+        if (component.name == "structural") {
+            functional_id = "compat_projection";
+        } else if (component.name == "law") {
+            functional_id = "total_magnitude";
+        } else if (component.name == "repair") {
+            functional_id = "distance";
+        } else if (component.name == "surprise") {
+            functional_id = "history_distance";
+        }
+    }
+    risk.lattice.coordinates.push_back(RiskCoordinate{namespace_id, functional_id, component.value});
+    risk.components.push_back(component);
     risk.evidence.push_back(component.evidence);
-}
-
-std::string evidence_key(const RiskEvidence& evidence) {
-    return evidence.component + ":" + to_hex(risk_evidence_hash(evidence));
 }
 
 std::vector<Hash256> evidence_hashes(const std::vector<RiskEvidence>& evidence) {
@@ -38,6 +44,33 @@ std::vector<Hash256> evidence_hashes(const std::vector<RiskEvidence>& evidence) 
     out.reserve(evidence.size());
     for (const auto& item : evidence) {
         out.push_back(risk_evidence_hash(item));
+    }
+    return out;
+}
+
+std::vector<MeasurementComponentRecord> component_records(const std::vector<MeasuredComponent>& components) {
+    std::vector<MeasurementComponentRecord> out;
+    out.reserve(components.size());
+    for (const auto& component : components) {
+        out.push_back(make_measurement_component_record(
+            component.namespace_id,
+            component.functional_id,
+            component.evidence.input_root,
+            component.evidence.output_root,
+            component.value,
+            risk_evidence_hash(component.evidence)));
+    }
+    std::ranges::sort(out, [](const auto& left, const auto& right) {
+        return to_hex(left.component_hash) < to_hex(right.component_hash);
+    });
+    return out;
+}
+
+std::vector<Hash256> component_hashes(const std::vector<MeasurementComponentRecord>& components) {
+    std::vector<Hash256> out;
+    out.reserve(components.size());
+    for (const auto& component : components) {
+        out.push_back(component.component_hash);
     }
     return out;
 }
@@ -54,19 +87,18 @@ Hash256 measured_risk_hash(
     CommitId commit,
     Hash256 commit_root,
     Hash256 spec_hash,
-    RiskVector value,
-    std::uint64_t projection,
-    std::vector<RiskEvidence> evidence) {
-    std::ranges::sort(evidence, [](const RiskEvidence& left, const RiskEvidence& right) {
-        return evidence_key(left) < evidence_key(right);
-    });
-
+    std::vector<MeasuredComponent> components) {
+    std::vector<RiskEvidence> evidence;
+    evidence.reserve(components.size());
+    for (const auto& component : components) {
+        evidence.push_back(component.evidence);
+    }
+    const auto records = component_records(components);
     return make_measurement_record(
         commit,
         commit_root,
         spec_hash,
-        value,
-        projection,
+        component_hashes(records),
         evidence_hashes(evidence)).measurement_hash;
 }
 
@@ -91,7 +123,9 @@ MeasuredRisk MeasuredRiskFunctional::measure_commit(
     risk.commit_root = record.after_root;
     risk.spec_hash = measurement_spec_hash(spec);
     if (spec.structural) {
-        add_component(risk, StructuralRiskMeasure{}.measure(repository, branch, commit));
+        for (const auto& component : StructuralRiskMeasure{}.measure_components(repository, branch, commit)) {
+            add_component(risk, component);
+        }
     }
     if (spec.law) {
         add_component(risk, LawRiskMeasure{}.measure(record));
@@ -102,17 +136,23 @@ MeasuredRisk MeasuredRiskFunctional::measure_commit(
     if (spec.surprise) {
         add_component(risk, HistorySurpriseMeasure{}.measure(repository, branch, commit));
     }
-    risk.projection = project(risk.value, spec.projection);
+    risk.lattice = canonical_risk_lattice(std::move(risk.lattice));
+    risk.value = risk_vector_from_lattice(risk.lattice);
+    risk.component_records = component_records(risk.components);
+    risk.component_root = measurement_component_root(component_hashes(risk.component_records));
+    risk.projection = project(risk.lattice, spec.projection);
     risk.evidence_root = measurement_evidence_root(evidence_hashes(risk.evidence));
-    risk.measurement_hash = measured_risk_hash(
+    const auto measurement_record = make_measurement_record(
         risk.commit,
         risk.commit_root,
         risk.spec_hash,
-        risk.value,
-        risk.projection,
-        risk.evidence);
-    risk.measurement_object = risk.measurement_hash;
-    risk.projection_result = make_projection_result(risk.measurement_hash, risk.value, spec.projection);
+        component_hashes(risk.component_records),
+        evidence_hashes(risk.evidence));
+    risk.measurement_identity_hash = measurement_record.measurement_identity_hash;
+    risk.measurement_object_hash = measurement_record.measurement_object_hash;
+    risk.measurement_hash = measurement_record.measurement_identity_hash;
+    risk.measurement_object = measurement_record.measurement_object_hash;
+    risk.projection_result = make_projection_result(risk.measurement_hash, risk.lattice, spec.projection);
     return risk;
 }
 
@@ -157,10 +197,14 @@ std::vector<MeasuredRisk> MeasuredRiskFunctional::measure_branch(
     return measure_branch(repository, branch, spec_from_options(repair_options), verifier);
 }
 
-RiskVector joined_risk(const std::vector<MeasuredRisk>& measured) noexcept {
-    RiskVector out;
+RiskVector joined_risk(const std::vector<MeasuredRisk>& measured) {
+    return risk_vector_from_lattice(joined_lattice(measured));
+}
+
+RiskLatticeElement joined_lattice(const std::vector<MeasuredRisk>& measured) {
+    RiskLatticeElement out;
     for (const auto& item : measured) {
-        out = join(out, item.value);
+        out = join(std::move(out), item.lattice);
     }
     return out;
 }

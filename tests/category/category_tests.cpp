@@ -149,6 +149,34 @@ TEST_CASE("composition applies first morphism then second morphism") {
     REQUIRE(normalized_morphism_path(result.events) == std::vector<std::string>{"f", "g"});
 }
 
+TEST_CASE("same-type defined morphism records a transformative graph edge") {
+    Verifier verifier;
+    verifier.add_builtin("preserve_existing_identity");
+    verifier.add_builtin("reject_dangling_pointer");
+    verifier.add_builtin("bounded_weight");
+    verifier.add_builtin("preserve_relation_type");
+
+    World world{"seed"};
+    seed_types(world);
+    REQUIRE(world.commit(world.object_delta("A", "Node"), verifier).accepted);
+
+    const auto node = world.type_id("Node");
+    DefinedMorphism stabilize{"Stabilize", MorphismSignature{node, node}};
+
+    const auto result = world.commit(stabilize.apply(world.snapshot(), Selection{{world.object_by_name("A")}, {}}), verifier);
+
+    REQUIRE(result.accepted);
+    REQUIRE(world.object(world.object_by_name("A")).type == node);
+    REQUIRE(world.pointers().size() == 1);
+    const auto snapshot = world.snapshot();
+    const auto& pointer = snapshot.pointers.front();
+    REQUIRE(pointer.from == world.object_by_name("A"));
+    REQUIRE(pointer.to == world.object_by_name("A"));
+    REQUIRE(pointer.causal_role == CausalRole::Transformative);
+    REQUIRE(pointer.law_domain == "morphism");
+    REQUIRE(snapshot.relation_name(pointer.relation) == "morphism.Stabilize");
+}
+
 TEST_CASE("associative paths agree by hash, law status, and observer projection") {
     Verifier verifier;
     verifier.add_builtin("preserve_existing_identity");

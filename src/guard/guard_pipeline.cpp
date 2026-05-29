@@ -295,7 +295,7 @@ GuardRunResult run_guard(const GuardRunOptions& options) {
     report.evidence_commits = commits;
     report.measured_risks = std::move(measured.measured);
     report.measured_risk = joined_risk(report.measured_risks);
-    const auto projection = make_projection_result(Hash256{}, report.measured_risk, measurement_spec.projection);
+    const auto projection = make_projection_result(Hash256{}, joined_lattice(report.measured_risks), measurement_spec.projection);
     report.projection_policy_hash = projection.projection_policy_hash;
     report.projection_hash = projection.projection_hash;
     report.projected_score = projection.projected_score;

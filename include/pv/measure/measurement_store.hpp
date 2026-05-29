@@ -68,12 +68,13 @@ private:
         std::string_view branch,
         CommitId commit,
         Hash256 spec_hash,
-        RiskProjection projection) const;
+        ProjectionPolicy projection) const;
 
     Repository& repository_;
     MeasurementIndex index_;
 };
 
-[[nodiscard]] RiskVector joined_risk(const MeasurementBranchResult& result) noexcept;
+[[nodiscard]] RiskVector joined_risk(const MeasurementBranchResult& result);
+[[nodiscard]] RiskLatticeElement joined_lattice(const MeasurementBranchResult& result);
 
 }  // namespace pv

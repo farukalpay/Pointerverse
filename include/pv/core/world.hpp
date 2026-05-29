@@ -56,7 +56,7 @@ public:
     [[nodiscard]] virtual Delta step(const WorldSnapshot& snapshot, Epoch next) const = 0;
 };
 
-class NoOpEvolution final : public EvolutionRule {
+class ForwardEvolution final : public EvolutionRule {
 public:
     [[nodiscard]] Delta step(const WorldSnapshot& snapshot, Epoch next) const override;
 };

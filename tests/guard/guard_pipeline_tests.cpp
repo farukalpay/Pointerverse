@@ -81,8 +81,12 @@ TEST_CASE("guard strict decision uses frozen baseline and rejects current commit
         fake_commit(std::byte{0x11}),
         spec_hash,
         Hash256{},
+        Hash256{},
+        Hash256{},
+        Hash256{},
         RiskVector{5, 0, 0, 3},
-        8
+        8,
+        false
     });
 
     const auto decision = strict_decision_for(report, &baseline);

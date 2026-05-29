@@ -128,6 +128,7 @@ pointerverse_configure_target(pointerverse_query)
 target_link_libraries(pointerverse_query PUBLIC pointerverse_storage)
 
 add_library(pointerverse_measure
+    src/measure/component_record.cpp
     src/measure/risk_value.cpp
     src/measure/risk_lattice.cpp
     src/measure/risk_evidence.cpp
@@ -310,6 +311,7 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/kernel/proof_tests.cpp
         tests/kernel/vm_tests.cpp
         tests/measure/risk_lattice_tests.cpp
+        tests/measure/component_record_tests.cpp
         tests/measure/calibration_tests.cpp
         tests/measure/graph_view_tests.cpp
         tests/measure/graph_functional_tests.cpp

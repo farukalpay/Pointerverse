@@ -115,6 +115,8 @@ void encode_commit_proof(CanonicalWriter& writer, const CommitProof& proof);
 [[nodiscard]] CommitRecord decode_commit_record_body_v4(CanonicalReader& reader);
 [[nodiscard]] CommitRecord decode_commit_record_body_v1(CanonicalReader& reader);
 [[nodiscard]] CommitRecord decode_commit_record_body_v2(CanonicalReader& reader);
+[[nodiscard]] CommitRecord decode_commit_record_body_legacy_proof(CanonicalReader& reader);
+[[nodiscard]] CommitRecord decode_commit_record_body_v4_legacy_proof(CanonicalReader& reader);
 [[nodiscard]] CommitProof decode_commit_proof(CanonicalReader& reader);
 [[nodiscard]] CommitProof decode_commit_proof_v1(CanonicalReader& reader);
 

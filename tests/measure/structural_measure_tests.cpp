@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <set>
 
 #include "pv/core/world.hpp"
 #include "pv/measure/structural_measure.hpp"
@@ -79,11 +80,23 @@ TEST_CASE("structural risk is stable when graph functional inputs do not change"
 
     const auto first_measure = StructuralRiskMeasure{}.measure(repo, "main", first->id);
     const auto second_measure = StructuralRiskMeasure{}.measure(repo, "main", second->id);
+    const auto components = StructuralRiskMeasure{}.measure_components(repo, "main", first->id);
+    std::set<std::string> component_ids;
+    for (const auto& component : components) {
+        component_ids.insert(measured_component_id(component));
+        REQUIRE(component.evidence.component == measured_component_id(component));
+    }
 
     REQUIRE(first_measure.value == second_measure.value);
     REQUIRE(first_measure.evidence.explanation.find("forward_cone_mass=") != std::string::npos);
     REQUIRE(first_measure.evidence.explanation.find("propagated_mass=") != std::string::npos);
     REQUIRE(first_measure.evidence.explanation.find("path_multiplicity=") != std::string::npos);
+    REQUIRE(component_ids.contains("structural.forward_cone_mass"));
+    REQUIRE(component_ids.contains("structural.reverse_dependency_mass"));
+    REQUIRE(component_ids.contains("structural.cut_vertex_impact"));
+    REQUIRE(component_ids.contains("structural.boundary_expansion"));
+    REQUIRE(component_ids.contains("structural.path_multiplicity"));
+    REQUIRE(component_ids.contains("structural.propagated_mass"));
 
     std::filesystem::remove_all(root);
 }

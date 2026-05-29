@@ -348,7 +348,9 @@ MeasuredComponent RepairDistanceMeasure::measure(
     const auto basis = canonical_repair_basis(record, before, target, options.max_candidates);
 
     MeasuredComponent component;
-    component.name = "repair";
+    component.namespace_id = "repair";
+    component.functional_id = "distance";
+    component.name = "repair.distance";
     component.evidence.component = component.name;
     component.evidence.input_root = record.before_root;
     component.evidence.output_root = target.canonical_hash();

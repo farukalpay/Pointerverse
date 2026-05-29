@@ -46,6 +46,33 @@ nlohmann::json risk_vector_json(RiskVector risk) {
     };
 }
 
+std::string coordinate_label(const RiskCoordinate& coordinate) {
+    return coordinate.namespace_id + "." + coordinate.component_id;
+}
+
+nlohmann::json risk_components_json(RiskLatticeElement lattice) {
+    lattice = canonical_risk_lattice(std::move(lattice));
+    nlohmann::json json = nlohmann::json::array();
+    for (const auto& coordinate : lattice.coordinates) {
+        json.push_back({
+            {"namespace", coordinate.namespace_id},
+            {"component", coordinate.component_id},
+            {"id", coordinate_label(coordinate)},
+            {"value", coordinate.value}
+        });
+    }
+    return json;
+}
+
+nlohmann::json measured_component_json(const MeasuredComponent& component) {
+    return {
+        {"namespace", component.namespace_id},
+        {"component", component.functional_id},
+        {"id", measured_component_id(component)},
+        {"value", component.value}
+    };
+}
+
 nlohmann::json evidence_json(const RiskEvidence& evidence) {
     nlohmann::json json;
     json["component"] = evidence.component;
@@ -74,17 +101,42 @@ nlohmann::json measured_risk_json(const MeasuredRisk& measured) {
     json["commit_root"] = to_hex(measured.commit_root);
     json["spec_hash"] = to_hex(measured.spec_hash);
     json["risk"] = risk_vector_json(measured.value);
+    json["risk_components"] = risk_components_json(measured.lattice);
     json["projection"] = measured.projection;
     json["projection_policy_hash"] = to_hex(measured.projection_result.projection_policy_hash);
     json["projection_hash"] = to_hex(measured.projection_result.projection_hash);
+    json["component_root"] = to_hex(measured.component_root);
     json["evidence_root"] = to_hex(measured.evidence_root);
     json["measurement_object"] = to_hex(measured.measurement_object);
+    json["measurement_identity_hash"] = to_hex(measured.measurement_identity_hash);
+    json["measurement_object_hash"] = to_hex(measured.measurement_object_hash);
     json["measurement_hash"] = to_hex(measured.measurement_hash);
+    json["components"] = nlohmann::json::array();
+    for (const auto& component : measured.components) {
+        json["components"].push_back(measured_component_json(component));
+    }
     json["evidence"] = nlohmann::json::array();
     for (const auto& evidence : measured.evidence) {
         json["evidence"].push_back(evidence_json(evidence));
     }
     return json;
+}
+
+void render_component_table(std::ostringstream& output, RiskLatticeElement lattice) {
+    lattice = canonical_risk_lattice(std::move(lattice));
+    output << "Measured risk components\n";
+    output << "------------------------\n";
+    if (lattice.coordinates.empty()) {
+        output << "none\n";
+        return;
+    }
+    std::size_t width = 0;
+    for (const auto& coordinate : lattice.coordinates) {
+        width = std::max(width, coordinate_label(coordinate).size());
+    }
+    for (const auto& coordinate : lattice.coordinates) {
+        output << fmt::format("{:<{}}  {}\n", coordinate_label(coordinate), width, coordinate.value);
+    }
 }
 
 }  // namespace
@@ -99,7 +151,7 @@ AuditReport AuditReportGenerator::generate(
     auto measured = MeasurementStore{repository}.measure_or_load_branch(branch, spec);
     report.measured_risks = std::move(measured.measured);
     report.risk = joined_risk(report.measured_risks);
-    const auto projection = make_projection_result(Hash256{}, report.risk, spec.projection);
+    const auto projection = make_projection_result(Hash256{}, joined_lattice(report.measured_risks), spec.projection);
     report.projection_policy_hash = projection.projection_policy_hash;
     report.projection_hash = projection.projection_hash;
     report.projected_score = projection.projected_score;
@@ -144,6 +196,9 @@ std::string render_audit_report_text(const AuditReport& report) {
         report.risk.law_distance,
         report.risk.repair_distance,
         report.risk.surprise);
+    output << '\n';
+    render_component_table(output, joined_lattice(report.measured_risks));
+    output << '\n';
     output << fmt::format("projection: {}\n", report.projected_score);
     if (report.violations.empty()) {
         output << "\nno violations\n";
@@ -213,6 +268,7 @@ std::string render_audit_report_json(const AuditReport& report) {
     json["measurement_spec_hash"] = to_hex(report.measurement_spec_hash);
     json["projection_policy_hash"] = to_hex(report.projection_policy_hash);
     json["risk"] = risk_vector_json(report.risk);
+    json["risk_components"] = risk_components_json(joined_lattice(report.measured_risks));
     json["projected_score"] = report.projected_score;
     json["projection_hash"] = to_hex(report.projection_hash);
     json["risk_score"] = report.risk_score;

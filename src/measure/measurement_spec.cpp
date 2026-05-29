@@ -58,10 +58,12 @@ MeasurementSpec decode_measurement_spec(CanonicalReader& reader) {
     spec.repair_options.max_depth = reader.u32();
     spec.repair_options.max_candidates = reader.u32();
     if (tag == "MeasurementSpec:v1") {
-        spec.projection.structural_weight = reader.u64();
-        spec.projection.law_weight = reader.u64();
-        spec.projection.repair_weight = reader.u64();
-        spec.projection.surprise_weight = reader.u64();
+        RiskProjection projection;
+        projection.structural_weight = reader.u64();
+        projection.law_weight = reader.u64();
+        projection.repair_weight = reader.u64();
+        projection.surprise_weight = reader.u64();
+        spec.projection = projection_policy_from_legacy(projection);
     }
     spec.verifier_id = reader.string();
     return spec;

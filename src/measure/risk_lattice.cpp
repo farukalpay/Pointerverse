@@ -2,6 +2,7 @@
 #include "pv/measure/risk_lattice.hpp"
 
 #include <algorithm>
+#include <utility>
 
 namespace pv {
 
@@ -21,5 +22,20 @@ bool less_equal(RiskVector left, RiskVector right) noexcept {
         && left.surprise <= right.surprise;
 }
 
-}  // namespace pv
+RiskLatticeElement join(RiskLatticeElement left, RiskLatticeElement right) {
+    left = canonical_risk_lattice(std::move(left));
+    right = canonical_risk_lattice(std::move(right));
+    left.coordinates.insert(left.coordinates.end(), right.coordinates.begin(), right.coordinates.end());
+    return canonical_risk_lattice(std::move(left));
+}
 
+bool less_equal(const RiskLatticeElement& left, const RiskLatticeElement& right) noexcept {
+    for (const auto& coordinate : left.coordinates) {
+        if (coordinate.value > coordinate_value(right, coordinate.namespace_id, coordinate.component_id)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace pv

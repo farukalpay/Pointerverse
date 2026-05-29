@@ -7,6 +7,7 @@
 
 #include "pv/core/world.hpp"
 #include "pv/measure/measurement_store.hpp"
+#include "pv/storage/index_store.hpp"
 #include "pv/storage/repository.hpp"
 
 using namespace pv;
@@ -43,6 +44,9 @@ TEST_CASE("measurement store preserves same commit and spec hash after reopen") 
     const auto spec = default_measurement_spec();
 
     const auto before = MeasurementStore{repo}.measure_or_load_commit("main", commit, spec);
+    REQUIRE(ProjectionIndex{repo.root()}.find(
+        before.record.measurement_identity_hash,
+        before.measured.projection_result.projection_policy_hash).has_value());
     auto reopened = Repository::open(root);
     const auto after = MeasurementStore{reopened}.measure_or_load_commit("main", commit, spec);
 
@@ -103,5 +107,39 @@ TEST_CASE("measurement cache rebuild rewrites branch entries") {
 
     REQUIRE(rebuilt.cache_misses == 2);
     REQUIRE(store.index().branch_entries("main", measurement_spec_hash(spec)).size() == 2);
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("legacy measurement index entries soft rebuild on measure") {
+    const auto root = temp_repo_path("legacy_index");
+    auto repo = Repository::init(root);
+    (void)repo.create_branch("main", World{"seed"});
+    const auto commit = append_object(repo, "main", "A");
+    auto store = MeasurementStore{repo};
+    const auto spec = default_measurement_spec();
+    const auto spec_hash = store.put_spec(spec);
+
+    IndexPayloadWriter writer;
+    writer.u64(1);
+    writer.string("main");
+    writer.hash(commit.value);
+    writer.hash(spec_hash);
+    writer.hash(Hash256{});
+    writer.u64(1);
+    writer.u64(0);
+    writer.u64(0);
+    writer.u64(0);
+    writer.u64(1);
+    IndexStore{repo.root(), "measurements.idx", "PVMEASUREIDX1"}.write_payload(writer.bytes());
+
+    REQUIRE(store.index().find("main", commit, spec_hash)->needs_rebuild);
+    const auto measured = store.measure_or_load_commit("main", commit, spec);
+
+    REQUIRE_FALSE(measured.cache_hit);
+    const auto rebuilt = store.index().find("main", commit, spec_hash);
+    REQUIRE(rebuilt.has_value());
+    REQUIRE_FALSE(rebuilt->needs_rebuild);
+    REQUIRE(rebuilt->measurement_identity_hash == measured.record.measurement_identity_hash);
+    REQUIRE(rebuilt->measurement_object == measured.record.measurement_object_hash);
     std::filesystem::remove_all(root);
 }

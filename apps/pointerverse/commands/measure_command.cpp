@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "commands.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
 #include "command_utils.hpp"
@@ -80,6 +83,33 @@ nlohmann::json risk_json(RiskVector risk) {
     };
 }
 
+std::string coordinate_label(const RiskCoordinate& coordinate) {
+    return coordinate.namespace_id + "." + coordinate.component_id;
+}
+
+nlohmann::json risk_components_json(RiskLatticeElement lattice) {
+    lattice = canonical_risk_lattice(std::move(lattice));
+    nlohmann::json json = nlohmann::json::array();
+    for (const auto& coordinate : lattice.coordinates) {
+        json.push_back({
+            {"namespace", coordinate.namespace_id},
+            {"component", coordinate.component_id},
+            {"id", coordinate_label(coordinate)},
+            {"value", coordinate.value}
+        });
+    }
+    return json;
+}
+
+nlohmann::json component_json(const MeasuredComponent& component) {
+    return {
+        {"namespace", component.namespace_id},
+        {"component", component.functional_id},
+        {"id", measured_component_id(component)},
+        {"value", component.value}
+    };
+}
+
 nlohmann::json evidence_json(const RiskEvidence& evidence) {
     nlohmann::json json;
     json["component"] = evidence.component;
@@ -108,15 +138,40 @@ nlohmann::json measured_json(const MeasuredRisk& measured) {
     json["commit_root"] = to_hex(measured.commit_root);
     json["spec_hash"] = to_hex(measured.spec_hash);
     json["risk"] = risk_json(measured.value);
+    json["risk_components"] = risk_components_json(measured.lattice);
     json["projection"] = measured.projection;
+    json["component_root"] = to_hex(measured.component_root);
     json["evidence_root"] = to_hex(measured.evidence_root);
     json["measurement_object"] = to_hex(measured.measurement_object);
+    json["measurement_identity_hash"] = to_hex(measured.measurement_identity_hash);
+    json["measurement_object_hash"] = to_hex(measured.measurement_object_hash);
     json["measurement_hash"] = to_hex(measured.measurement_hash);
+    json["components"] = nlohmann::json::array();
+    for (const auto& component : measured.components) {
+        json["components"].push_back(component_json(component));
+    }
     json["evidence"] = nlohmann::json::array();
     for (const auto& evidence : measured.evidence) {
         json["evidence"].push_back(evidence_json(evidence));
     }
     return json;
+}
+
+void render_component_table(std::ostringstream& output, RiskLatticeElement lattice) {
+    lattice = canonical_risk_lattice(std::move(lattice));
+    output << "Measured risk components\n";
+    output << "------------------------\n";
+    if (lattice.coordinates.empty()) {
+        output << "none\n";
+        return;
+    }
+    std::size_t width = 0;
+    for (const auto& coordinate : lattice.coordinates) {
+        width = std::max(width, coordinate_label(coordinate).size());
+    }
+    for (const auto& coordinate : lattice.coordinates) {
+        output << fmt::format("{:<{}}  {}\n", coordinate_label(coordinate), width, coordinate.value);
+    }
 }
 
 std::string render_risk_text(std::string_view branch, const MeasuredRisk& measured) {
@@ -128,8 +183,12 @@ std::string render_risk_text(std::string_view branch, const MeasuredRisk& measur
     output << "law:          " << measured.value.law_distance << "\n";
     output << "repair:       " << measured.value.repair_distance << "\n";
     output << "surprise:     " << measured.value.surprise << "\n";
+    output << "\n";
+    render_component_table(output, measured.lattice);
+    output << "\n";
     output << "projection:   " << measured.projection << "\n";
     output << "spec hash:    " << to_hex(measured.spec_hash).substr(0, 12) << "\n";
+    output << "component root:" << to_hex(measured.component_root).substr(0, 12) << "\n";
     output << "evidence root:" << to_hex(measured.evidence_root).substr(0, 12) << "\n";
     output << "hash:         " << to_hex(measured.measurement_hash).substr(0, 12) << "\n";
     output << "\nevidence:\n";
@@ -145,7 +204,8 @@ std::string render_branch_risk_text(
     const MeasurementBranchResult& measured,
     Hash256 spec_hash) {
     const auto risk = joined_risk(measured);
-    const auto projection = project(risk, agent_audit_measurement_spec().projection);
+    const auto lattice = joined_lattice(measured);
+    const auto projection = project(lattice, agent_audit_measurement_spec().projection);
     std::ostringstream output;
     output << "Measured risk: " << branch << "\n";
     output << "-------------------\n";
@@ -156,6 +216,9 @@ std::string render_branch_risk_text(
     output << "law:           " << risk.law_distance << "\n";
     output << "repair:        " << risk.repair_distance << "\n";
     output << "surprise:      " << risk.surprise << "\n";
+    output << "\n";
+    render_component_table(output, lattice);
+    output << "\n";
     output << "projection:    " << projection << "\n";
     output << "spec hash:     " << to_hex(spec_hash).substr(0, 12) << "\n";
     return output.str();
@@ -210,6 +273,7 @@ public:
         verify_ = measure->add_subcommand("verify", "Verify cached measurement ledger records");
         verify_->add_option("branch", verify_branch_, "Branch name")->required();
         verify_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
+        verify_->add_flag("--strict-cache", verify_strict_cache_, "Fail if legacy measurement cache entries need rebuild");
 
         baseline_ = measure->add_subcommand("baseline", "Manage frozen measurement baselines");
         baseline_->require_subcommand(1);
@@ -256,6 +320,7 @@ public:
                 }
                 if (risk_format_ == "json") {
                     const auto joined = joined_risk(measured);
+                    const auto lattice = joined_lattice(measured);
                     nlohmann::json json;
                     json["branch"] = risk_branch_;
                     json["spec_hash"] = to_hex(spec_hash);
@@ -263,7 +328,8 @@ public:
                     json["cache_hits"] = measured.cache_hits;
                     json["cache_misses"] = measured.cache_misses;
                     json["risk"] = risk_json(joined);
-                    json["projection"] = project(joined, spec.projection);
+                    json["risk_components"] = risk_components_json(lattice);
+                    json["projection"] = project(lattice, spec.projection);
                     json["measured_risks"] = nlohmann::json::array();
                     for (const auto& item : measured.measured) {
                         json["measured_risks"].push_back(measured_json(item));
@@ -299,6 +365,7 @@ public:
                 const auto spec_hash = store.put_spec(spec);
                 const auto measured = store.measure_or_load_branch(export_branch_, spec, &verifier);
                 const auto joined = joined_risk(measured);
+                const auto lattice = joined_lattice(measured);
                 nlohmann::json json;
                 json["branch"] = export_branch_;
                 json["spec_hash"] = to_hex(spec_hash);
@@ -306,7 +373,8 @@ public:
                 json["cache_hits"] = measured.cache_hits;
                 json["cache_misses"] = measured.cache_misses;
                 json["risk"] = risk_json(joined);
-                json["projection"] = project(joined, spec.projection);
+                json["risk_components"] = risk_components_json(lattice);
+                json["projection"] = project(lattice, spec.projection);
                 json["measured_risks"] = nlohmann::json::array();
                 for (const auto& item : measured.measured) {
                     json["measured_risks"].push_back(measured_json(item));
@@ -320,7 +388,11 @@ public:
                 auto repository = Repository::open(store_path_);
                 auto verifier = agent_audit_verifier();
                 const auto spec = agent_audit_measurement_spec();
-                const auto report = MeasurementVerifier{repository}.verify_branch(verify_branch_, spec, &verifier);
+                const auto report = MeasurementVerifier{repository}.verify_branch(
+                    verify_branch_,
+                    spec,
+                    &verifier,
+                    MeasurementVerificationOptions{verify_strict_cache_});
                 std::cout << render_measurement_verification_text(report, spec);
                 return report.clean() ? EXIT_SUCCESS : EXIT_FAILURE;
             });
@@ -383,6 +455,7 @@ private:
     std::string export_branch_;
     std::string export_format_{"json"};
     std::string verify_branch_;
+    bool verify_strict_cache_{false};
     std::string baseline_branch_;
     std::string baseline_up_to_;
     std::string baseline_name_;

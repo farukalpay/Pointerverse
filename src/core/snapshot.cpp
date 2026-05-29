@@ -210,7 +210,27 @@ TempObjectId next_temp_id(const Delta& first, const Delta& second) noexcept {
 }
 
 Delta compress_updates(Delta delta) {
-    return delta;
+    std::unordered_map<std::string, std::size_t> last_type_update;
+    for (std::size_t index = 0; index < delta.ops.size(); ++index) {
+        const auto& op = delta.ops[index];
+        if (op.kind != OperationKind::SetObjectType) {
+            continue;
+        }
+        last_type_update[ref_key(std::get<SetObjectTypeOp>(op.body).object)] = index;
+    }
+
+    Delta out;
+    for (std::size_t index = 0; index < delta.ops.size(); ++index) {
+        const auto& op = delta.ops[index];
+        if (op.kind == OperationKind::SetObjectType) {
+            const auto key = ref_key(std::get<SetObjectTypeOp>(op.body).object);
+            if (last_type_update.at(key) != index) {
+                continue;
+            }
+        }
+        out.ops.push_back(op);
+    }
+    return out;
 }
 
 }  // namespace
@@ -471,11 +491,9 @@ merge_sequential(const WorldSnapshot& base, const Delta& first, const Delta& sec
             remapped = next_temp;
             next_temp.value += 1;
         }
-        second_temp_remap.emplace(create.temp_id.value, remapped);
-
-        auto out_create = create;
-        out_create.temp_id = remapped;
-        normalized_second.append_create(std::move(out_create));
+        if (!second_temp_remap.emplace(create.temp_id.value, remapped).second) {
+            return std::unexpected(DeltaMergeError::DuplicateTempObject);
+        }
     }
 
     const auto first_synthetic = synthetic_temp_map(base, first);
@@ -503,36 +521,99 @@ merge_sequential(const WorldSnapshot& base, const Delta& first, const Delta& sec
         return std::unexpected(DeltaMergeError::UpdateMissingObject);
     };
 
-    for (const auto& update : second.updates_view()) {
-        auto object = normalize_ref(update.object);
-        if (!object.has_value()) {
-            return std::unexpected(DeltaMergeError::UpdateMissingObject);
+    for (const auto& op : second.ops) {
+        switch (op.kind) {
+        case OperationKind::InternType:
+        case OperationKind::InternRelation:
+        case OperationKind::AssertPointer:
+        case OperationKind::AssertFact:
+        case OperationKind::ExpirePointer:
+        case OperationKind::SetPointerWeight:
+        case OperationKind::SetPointerAttribute:
+        case OperationKind::RemovePointerAttribute:
+        case OperationKind::EmitEvent:
+            normalized_second.append(make_operation(op.kind, op.body));
+            break;
+        case OperationKind::CreateObject: {
+            auto create = std::get<CreateObjectOp>(op.body);
+            const auto remap = second_temp_remap.find(create.temp_id.value);
+            if (remap == second_temp_remap.end()) {
+                return std::unexpected(DeltaMergeError::DuplicateTempObject);
+            }
+            create.temp_id = remap->second;
+            normalized_second.append_create(std::move(create));
+            break;
         }
-        normalized_second.append_update(ObjectUpdate{*object, update.type, update.existence});
-    }
-
-    for (const auto& link : second.links_view()) {
-        auto from = normalize_ref(link.from);
-        auto to = normalize_ref(link.to);
-        if (!from.has_value() || !to.has_value()) {
-            return std::unexpected(DeltaMergeError::PointerMissingObject);
+        case OperationKind::SetObjectType: {
+            const auto& body = std::get<SetObjectTypeOp>(op.body);
+            auto object = normalize_ref(body.object);
+            if (!object.has_value()) {
+                return std::unexpected(DeltaMergeError::UpdateMissingObject);
+            }
+            normalized_second.append(make_operation(OperationKind::SetObjectType, SetObjectTypeOp{*object, body.type}));
+            break;
         }
-        normalized_second.append_link(PointerCreate{
-            *from,
-            *to,
-            link.relation,
-            link.causal_role,
-            link.weight,
-            link.law_domain,
-            link.attributes
-        });
-    }
-
-    for (const auto& unlink : second.unlinks_view()) {
-        normalized_second.append_unlink(unlink);
-    }
-    for (const auto& event : second.events_view()) {
-        normalized_second.append_event(event);
+        case OperationKind::SetObjectExistence: {
+            const auto& body = std::get<SetObjectExistenceOp>(op.body);
+            auto object = normalize_ref(body.object);
+            if (!object.has_value()) {
+                return std::unexpected(DeltaMergeError::UpdateMissingObject);
+            }
+            normalized_second.append(make_operation(
+                OperationKind::SetObjectExistence,
+                SetObjectExistenceOp{*object, body.existence}));
+            break;
+        }
+        case OperationKind::SetObjectAttribute: {
+            const auto& body = std::get<SetObjectAttributeOp>(op.body);
+            auto object = normalize_ref(body.object);
+            if (!object.has_value()) {
+                return std::unexpected(DeltaMergeError::UpdateMissingObject);
+            }
+            normalized_second.append(make_operation(
+                OperationKind::SetObjectAttribute,
+                SetObjectAttributeOp{*object, body.attribute}));
+            break;
+        }
+        case OperationKind::RemoveObjectAttribute: {
+            const auto& body = std::get<RemoveObjectAttributeOp>(op.body);
+            auto object = normalize_ref(body.object);
+            if (!object.has_value()) {
+                return std::unexpected(DeltaMergeError::UpdateMissingObject);
+            }
+            normalized_second.append(make_operation(
+                OperationKind::RemoveObjectAttribute,
+                RemoveObjectAttributeOp{*object, body.key}));
+            break;
+        }
+        case OperationKind::CreatePointer: {
+            const auto& body = std::get<CreatePointerOp>(op.body);
+            auto from = normalize_ref(body.from);
+            auto to = normalize_ref(body.to);
+            if (!from.has_value() || !to.has_value()) {
+                return std::unexpected(DeltaMergeError::PointerMissingObject);
+            }
+            normalized_second.append_link(PointerCreate{
+                *from,
+                *to,
+                body.relation,
+                body.causal_role,
+                body.weight,
+                body.law_domain,
+                body.attributes
+            });
+            break;
+        }
+        case OperationKind::AssertObject: {
+            const auto& body = std::get<AssertObjectOp>(op.body);
+            auto object = normalize_ref(body.object);
+            if (!object.has_value()) {
+                return std::unexpected(DeltaMergeError::UpdateMissingObject);
+            }
+            normalized_second.append(make_operation(OperationKind::AssertObject, AssertObjectOp{*object}));
+            break;
+        }
+        }
     }
 
     Delta out;
@@ -546,6 +627,9 @@ merge_sequential(const WorldSnapshot& base, const Delta& first, const Delta& sec
         out.ops[index].id = OperationId{static_cast<std::uint64_t>(index + 1)};
     }
     out = compress_updates(std::move(out));
+    for (std::size_t index = 0; index < out.ops.size(); ++index) {
+        out.ops[index].id = OperationId{static_cast<std::uint64_t>(index + 1)};
+    }
 
     if (!SnapshotOverlay{base}.apply(out).has_value()) {
         return std::unexpected(DeltaMergeError::OverlayRejected);

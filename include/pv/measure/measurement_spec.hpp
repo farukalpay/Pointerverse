@@ -23,7 +23,7 @@ struct MeasurementSpec {
     bool repair{true};
     bool surprise{true};
     RepairSearchOptions repair_options;
-    RiskProjection projection;
+    ProjectionPolicy projection{default_projection_policy()};
     std::string verifier_id{"none"};
 
     friend bool operator==(const MeasurementSpec& left, const MeasurementSpec& right) noexcept;

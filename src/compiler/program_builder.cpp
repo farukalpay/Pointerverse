@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 
 namespace pv {
@@ -220,23 +221,50 @@ void ProgramBuilder::emit_event(const TraceEvent& event) {
 }
 
 void ProgramBuilder::append_delta(const WorldSnapshot& snapshot, const Delta& delta) {
+    std::unordered_map<std::uint32_t, std::string> delta_type_names;
+    std::unordered_map<std::uint32_t, std::string> delta_relation_names;
+
+    auto type_name_for = [&](TypeId type) {
+        if (const auto iter = delta_type_names.find(type.value); iter != delta_type_names.end()) {
+            return iter->second;
+        }
+        return type_name(snapshot, type);
+    };
+
+    auto relation_name_for = [&](RelationType relation) {
+        if (const auto iter = delta_relation_names.find(relation.id); iter != delta_relation_names.end()) {
+            return iter->second;
+        }
+        return relation_name(snapshot, relation);
+    };
+
     for (const auto& op : delta.ops) {
         switch (op.kind) {
-        case OperationKind::InternType:
-            intern_type(std::get<InternTypeOp>(op.body).name);
+        case OperationKind::InternType: {
+            const auto& body = std::get<InternTypeOp>(op.body);
+            if (body.id.valid()) {
+                delta_type_names.emplace(body.id.value, body.name);
+            }
+            intern_type(body.name);
             break;
-        case OperationKind::InternRelation:
-            intern_relation(std::get<InternRelationOp>(op.body).name);
+        }
+        case OperationKind::InternRelation: {
+            const auto& body = std::get<InternRelationOp>(op.body);
+            if (body.id.valid()) {
+                delta_relation_names.emplace(body.id.id, body.name);
+            }
+            intern_relation(body.name);
             break;
+        }
         case OperationKind::CreateObject: {
             const auto& body = std::get<CreateObjectOp>(op.body);
-            intern_type(type_name(snapshot, body.type));
+            intern_type(type_name_for(body.type));
             auto ref = temp_object(body.temp_id.value);
             temp_objects_.emplace(body.temp_id.value, ref);
             created_names_.emplace(body.name, ref);
             emit(
                 InstructionOp::CreateObject,
-                {u64(body.temp_id.value), u64(string_symbol(body.name)), u64(type_symbol(type_name(snapshot, body.type)))});
+                {u64(body.temp_id.value), u64(string_symbol(body.name)), u64(type_symbol(type_name_for(body.type)))});
             next_temp_object_ = std::max(next_temp_object_, body.temp_id.value + 1);
             for (const auto& attribute : body.attributes) {
                 set_object_attribute(ref, attribute.key, attribute.value);
@@ -245,7 +273,7 @@ void ProgramBuilder::append_delta(const WorldSnapshot& snapshot, const Delta& de
         }
         case OperationKind::SetObjectType: {
             const auto& body = std::get<SetObjectTypeOp>(op.body);
-            set_object_type(ref_for(snapshot, body.object), type_name(snapshot, body.type));
+            set_object_type(ref_for(snapshot, body.object), type_name_for(body.type));
             break;
         }
         case OperationKind::SetObjectExistence: {
@@ -268,7 +296,7 @@ void ProgramBuilder::append_delta(const WorldSnapshot& snapshot, const Delta& de
             auto pointer = create_pointer(
                 ref_for(snapshot, body.from),
                 ref_for(snapshot, body.to),
-                relation_name(snapshot, body.relation),
+                relation_name_for(body.relation),
                 body.weight.value,
                 body.causal_role,
                 body.law_domain);

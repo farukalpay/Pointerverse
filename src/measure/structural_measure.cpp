@@ -9,6 +9,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -232,9 +233,13 @@ void append_witness(RiskEvidence& evidence, const FunctionalResult& result) {
     evidence.pointers.insert(evidence.pointers.end(), result.witness_pointers.begin(), result.witness_pointers.end());
 }
 
+std::string component_name(std::string_view namespace_id, std::string_view functional_id) {
+    return std::string{namespace_id} + "." + std::string{functional_id};
+}
+
 }  // namespace
 
-MeasuredComponent StructuralRiskMeasure::measure(
+std::vector<MeasuredComponent> StructuralRiskMeasure::measure_components(
     const Repository& repository,
     std::string_view,
     CommitId commit) const {
@@ -267,10 +272,10 @@ MeasuredComponent StructuralRiskMeasure::measure(
     const std::array<const GraphFunctional*, 6> functionals{
         &forward,
         &reverse,
-        &propagated,
         &cut,
         &boundary,
-        &paths
+        &paths,
+        &propagated
     };
 
     std::vector<std::pair<std::string_view, FunctionalResult>> results;
@@ -279,30 +284,80 @@ MeasuredComponent StructuralRiskMeasure::measure(
         results.emplace_back(functional->name(), functional->evaluate(graph, touched_objects));
     }
 
-    MeasuredComponent component;
-    component.name = "structural";
-    component.value = compat_structural_projection(touched_objects.size(), results);
-    component.evidence.component = component.name;
-    component.evidence.input_root = record.before_root;
-    component.evidence.output_root = record.after_root;
-    component.evidence.objects = touched_objects;
-    component.evidence.pointers = touched_pointers;
-    component.evidence.commits.push_back(commit);
-    for (const auto& [_, result] : results) {
+    std::vector<MeasuredComponent> components;
+    components.reserve(results.size());
+    for (const auto& [name, result] : results) {
+        MeasuredComponent component;
+        component.namespace_id = "structural";
+        component.functional_id = std::string{name};
+        component.name = component_name(component.namespace_id, component.functional_id);
+        component.value = result.value;
+        component.evidence.component = component.name;
+        component.evidence.input_root = record.before_root;
+        component.evidence.output_root = record.after_root;
+        component.evidence.objects = touched_objects;
+        component.evidence.pointers = touched_pointers;
+        component.evidence.commits.push_back(commit);
         append_witness(component.evidence, result);
-    }
-    sort_objects(component.evidence.objects);
-    sort_pointers(component.evidence.pointers);
+        sort_objects(component.evidence.objects);
+        sort_pointers(component.evidence.pointers);
 
+        std::ostringstream explanation;
+        explanation << "graph functional " << name
+                    << "; changed objects: " << touched_objects.size()
+                    << "; " << result.explanation;
+        component.evidence.explanation = explanation.str();
+        components.push_back(std::move(component));
+    }
+    return components;
+}
+
+MeasuredComponent StructuralRiskMeasure::measure(
+    const Repository& repository,
+    std::string_view branch,
+    CommitId commit) const {
+    const auto components = measure_components(repository, branch, commit);
+    std::vector<std::pair<std::string_view, FunctionalResult>> results;
+    results.reserve(components.size());
+    for (const auto& component : components) {
+        FunctionalResult result;
+        result.value = component.value;
+        result.explanation = component.evidence.explanation;
+        results.emplace_back(component.functional_id, std::move(result));
+    }
+
+    MeasuredComponent aggregate;
+    aggregate.namespace_id = "structural";
+    aggregate.functional_id = "compat_projection";
+    aggregate.name = "structural";
+    aggregate.evidence.component = aggregate.name;
+    if (!components.empty()) {
+        aggregate.evidence.input_root = components.front().evidence.input_root;
+        aggregate.evidence.output_root = components.front().evidence.output_root;
+        aggregate.evidence.commits = components.front().evidence.commits;
+    }
+    for (const auto& component : components) {
+        aggregate.evidence.objects.insert(
+            aggregate.evidence.objects.end(),
+            component.evidence.objects.begin(),
+            component.evidence.objects.end());
+        aggregate.evidence.pointers.insert(
+            aggregate.evidence.pointers.end(),
+            component.evidence.pointers.begin(),
+            component.evidence.pointers.end());
+    }
+    sort_objects(aggregate.evidence.objects);
+    sort_pointers(aggregate.evidence.pointers);
+
+    aggregate.value = compat_structural_projection(0, results);
     std::ostringstream explanation;
-    explanation << "graph functional structural compat projection"
-                << "; changed objects: " << touched_objects.size();
+    explanation << "graph functional structural compat projection";
     for (const auto& [name, result] : results) {
         explanation << "; " << name << "=" << result.value
                     << " [" << result.explanation << "]";
     }
-    component.evidence.explanation = explanation.str();
-    return component;
+    aggregate.evidence.explanation = explanation.str();
+    return aggregate;
 }
 
 }  // namespace pv

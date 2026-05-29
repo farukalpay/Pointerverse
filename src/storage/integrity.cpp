@@ -73,6 +73,19 @@ Hash256 law_output_root(const std::vector<LawStatus>& statuses, const std::vecto
     return sha256(writer.bytes());
 }
 
+Hash256 legacy_proof_hash(const CommitProof& proof) {
+    CanonicalWriter writer;
+    writer.string("CommitProof:v1");
+    writer.hash(proof.before_root);
+    writer.hash(proof.operation_root);
+    writer.hash(proof.read_set_root);
+    writer.hash(proof.write_set_root);
+    writer.hash(proof.law_input_root);
+    writer.hash(proof.law_output_root);
+    writer.hash(proof.after_root);
+    return sha256(writer.bytes());
+}
+
 void check_object_store(const Repository& repo, IntegrityReport& report) {
     const auto object_root = repo.root() / "objects";
     if (!std::filesystem::exists(object_root)) {
@@ -150,7 +163,9 @@ void check_commit_proof(
     }
 
     const auto proof_hash = hash_commit_proof(*record.proof);
-    if (proof_hash != record.proof_hash) {
+    const auto accepts_legacy_hash = empty(record.program_hash)
+        && legacy_proof_hash(*record.proof) == record.proof_hash;
+    if (proof_hash != record.proof_hash && !accepts_legacy_hash) {
         add_error(report, "commit proof hash mismatch: " + to_hex(record.id.value));
     }
     if (record.proof->before_root != before_root) {

@@ -267,7 +267,9 @@ MeasuredComponent HistorySurpriseMeasure::measure(
     const auto signatures = signatures_for(target, delta, after);
 
     MeasuredComponent component;
-    component.name = "surprise";
+    component.namespace_id = "surprise";
+    component.functional_id = "history_distance";
+    component.name = "surprise.history_distance";
     component.evidence.component = component.name;
     component.evidence.input_root = target.before_root;
     component.evidence.output_root = target.trace_hash;

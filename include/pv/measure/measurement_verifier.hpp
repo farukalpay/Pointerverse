@@ -27,6 +27,10 @@ struct MeasurementVerificationReport {
     [[nodiscard]] bool clean() const noexcept { return errors.empty(); }
 };
 
+struct MeasurementVerificationOptions {
+    bool strict_cache{false};
+};
+
 class MeasurementVerifier {
 public:
     explicit MeasurementVerifier(Repository& repository);
@@ -34,7 +38,8 @@ public:
     [[nodiscard]] MeasurementVerificationReport verify_branch(
         std::string_view branch,
         const MeasurementSpec& spec,
-        const Verifier* verifier = nullptr) const;
+        const Verifier* verifier = nullptr,
+        MeasurementVerificationOptions options = {}) const;
 
 private:
     Repository& repository_;
