@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark" />
+<meta name="description" content="Pointerverse - a causal IDE for forkable worlds. Write a world, define laws, run consequences, compare branches, and ask why facts exist." />
+<title>Pointerverse - causal IDE</title>
+<link rel="preconnect" href="data:," />
+<link rel="stylesheet" href="css/app.css" />
+</head>
+<body data-mode="static">
+
+<!-- ===================== Title bar ===================== -->
+<header class="titlebar" role="banner">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+      <defs>
+        <linearGradient id="bm" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#7c8cff"/>
+          <stop offset="1" stop-color="#4fd1c5"/>
+        </linearGradient>
+      </defs>
+      <circle cx="16" cy="16" r="13" fill="none" stroke="url(#bm)" stroke-width="1.5" opacity="0.45"/>
+      <circle cx="8.5" cy="11" r="2.6" fill="url(#bm)"/>
+      <circle cx="22" cy="9" r="2.2" fill="#7c8cff"/>
+      <circle cx="21" cy="22" r="2.6" fill="#4fd1c5"/>
+      <path d="M10.6 12.4 L19.6 9.8 M10.4 12.8 L19.4 20.4" stroke="url(#bm)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+    </svg>
+    <div class="brand-text">
+      <span class="brand-name">Pointerverse</span>
+      <span class="brand-sub">causal IDE</span>
+    </div>
+  </div>
+
+  <div class="breadcrumb" id="breadcrumb">
+    <button class="crumb crumb-pack" id="crumbWorld" title="Active world">mohacs</button>
+    <span class="crumb-sep">/</span>
+    <button class="crumb crumb-branch" id="crumbBranch" title="Active branch">
+      <svg viewBox="0 0 16 16" class="ic" aria-hidden="true"><path d="M5 3.5a1.5 1.5 0 1 0-2 1.41V11.1a1.5 1.5 0 1 0 1 0V8.2c.5.5 1.2.8 2 .8h1.3a1.5 1.5 0 1 0 0-1H7c-1 0-2-.7-2-2V4.9A1.5 1.5 0 0 0 5 3.5Z" fill="currentColor"/></svg>
+      historical
+    </button>
+    <span class="crumb-sep">/</span>
+    <span class="crumb crumb-file" id="crumbFile">historical.pv</span>
+  </div>
+
+  <nav class="actions" aria-label="World actions">
+    <button class="btn btn-run" id="actRun" title="Run the world into commits (R)">
+      <svg viewBox="0 0 16 16" class="ic"><path d="M4 3.2v9.6c0 .5.6.8 1 .5l7.4-4.8a.6.6 0 0 0 0-1L5 2.7c-.4-.3-1 0-1 .5Z" fill="currentColor"/></svg>
+      Run
+    </button>
+    <button class="btn" id="actFork" title="Fork this branch into an alternate history">
+      <svg viewBox="0 0 16 16" class="ic"><path d="M4 3.5a1.5 1.5 0 1 0-2 1.41V11.1a1.5 1.5 0 1 0 1 0V7.7c.5.5 1.2.7 2 .7h1.5a1.5 1.5 0 0 1 1.5 1.5v.7a1.5 1.5 0 1 0 1 0V9.9A2.5 2.5 0 0 0 6.5 7.4H5c-.8 0-2-.6-2-2V4.9A1.5 1.5 0 0 0 4 3.5Z" fill="currentColor"/></svg>
+      Fork
+    </button>
+    <button class="btn" id="actCompare" title="Compare two branches and find the first divergence">
+      <svg viewBox="0 0 16 16" class="ic"><path d="M5 2v8.3a1.5 1.5 0 1 0 1 0V2H5Zm5 3.7v8.3a1.5 1.5 0 1 1-1 0V5.7h1Z" fill="currentColor"/><path d="M6 4h3l-1.2-1.2.7-.7L11 4.5 8.5 7l-.7-.7L9 5H6V4Z" fill="currentColor"/></svg>
+      Compare
+    </button>
+    <button class="btn" id="actReplay" title="Replay the store bit for bit">
+      <svg viewBox="0 0 16 16" class="ic"><path d="M8 3V1.2L5.4 3.4 8 5.6V4a4 4 0 1 1-3.9 4.9l-1 .2A5 5 0 1 0 8 3Z" fill="currentColor"/></svg>
+      Replay
+    </button>
+    <button class="btn" id="actAudit" title="Audit timeline and find where it first broke">
+      <svg viewBox="0 0 16 16" class="ic"><path d="M7 1.5a4.5 4.5 0 0 1 3.4 7.45l3.3 3.3-1 1-3.3-3.3A4.5 4.5 0 1 1 7 1.5Zm0 1.5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" fill="currentColor"/></svg>
+      Audit
+    </button>
+    <button class="btn btn-sentinel" id="actSentinel" title="Run Sentinel self-verification and fsck">
+      <svg viewBox="0 0 16 16" class="ic"><path d="M8 1.2 2.5 3.4v4.1c0 3.3 2.3 6.1 5.5 7.3 3.2-1.2 5.5-4 5.5-7.3V3.4L8 1.2Zm-.8 9.3L4.8 8.1l.9-1 1.5 1.5 3-3.4 1 .85-3.9 4.4Z" fill="currentColor"/></svg>
+      Sentinel
+    </button>
+  </nav>
+</header>
+
+<!-- ===================== Workbench ===================== -->
+<main class="workbench" id="workbench">
+
+  <!-- ---------- Left rail: explorer ---------- -->
+  <aside class="rail" id="rail" aria-label="Explorer">
+    <div class="rail-head">
+      <span>Explorer</span>
+      <button class="icon-btn" id="railCollapse" title="Collapse panel" aria-label="Collapse explorer">
+        <svg viewBox="0 0 16 16" class="ic"><path d="M10 4 6 8l4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <section class="tree-group" data-group="worlds">
+      <div class="tree-title"><span class="tw-caret">v</span> WORLDS</div>
+      <ul class="tree" id="treeWorlds"></ul>
+    </section>
+
+    <section class="tree-group" data-group="files">
+      <div class="tree-title"><span class="tw-caret">v</span> FILES</div>
+      <ul class="tree" id="treeFiles"></ul>
+    </section>
+
+    <section class="tree-group" data-group="branches">
+      <div class="tree-title"><span class="tw-caret">v</span> BRANCHES</div>
+      <ul class="tree tree-branches" id="treeBranches"></ul>
+    </section>
+
+    <section class="tree-group" data-group="laws">
+      <div class="tree-title"><span class="tw-caret">v</span> LAWS</div>
+      <ul class="tree tree-laws" id="treeLaws"></ul>
+    </section>
+  </aside>
+
+  <div class="rail-rehandle" id="railReopen" title="Open explorer" hidden>
+    <svg viewBox="0 0 16 16" class="ic"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </div>
+
+  <!-- ---------- Center: editor ---------- -->
+  <section class="center" aria-label="World editor">
+    <div class="tabstrip" id="tabstrip"></div>
+
+    <div class="editor-wrap" id="editorWrap">
+      <div class="gutter" id="gutter" aria-hidden="true"></div>
+      <pre class="hl" id="hl" aria-hidden="true"><code id="hlCode"></code></pre>
+      <textarea id="editor" class="editor" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-label="Pointerverse world script"></textarea>
+    </div>
+
+    <!-- Timeline view (shown only when .center has .show-timeline) -->
+    <div class="timeline-wrap" id="timelineWrap"></div>
+  </section>
+
+  <!-- ---------- Right: graph + inspector ---------- -->
+  <section class="right" aria-label="Graph and inspector">
+    <div class="graph-head">
+      <div class="seg" role="tablist" aria-label="Graph mode">
+        <button class="seg-btn is-active" data-gmode="causal" role="tab">Causal</button>
+        <button class="seg-btn" data-gmode="commit" role="tab">Commit</button>
+        <button class="seg-btn" data-gmode="law" role="tab">Law</button>
+      </div>
+      <div class="graph-tools">
+        <button class="icon-btn" id="gZoomIn" title="Zoom in" aria-label="Zoom in"><svg viewBox="0 0 16 16" class="ic"><path d="M8 4v8M4 8h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+        <button class="icon-btn" id="gZoomOut" title="Zoom out" aria-label="Zoom out"><svg viewBox="0 0 16 16" class="ic"><path d="M4 8h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+        <button class="icon-btn" id="gFit" title="Fit to view" aria-label="Fit graph"><svg viewBox="0 0 16 16" class="ic"><path d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+      </div>
+    </div>
+
+    <div class="graph-canvas" id="graphCanvas">
+      <svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="graph-legend" id="graphLegend"></div>
+      <div class="graph-empty" id="graphEmpty" hidden>Write a world to see its graph.</div>
+    </div>
+
+    <div class="inspector" id="inspector">
+      <div class="insp-head">
+        <span id="inspTitle">Inspector</span>
+        <span class="insp-hint" id="inspHint">Select a node or edge</span>
+      </div>
+      <div class="insp-body" id="inspBody">
+        <div class="insp-placeholder">
+          Click any node or relation in the graph to ask <em>why this fact exists</em> -
+          its birth epoch, commit, branch, and the facts it came from.
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ===================== Bottom dock ===================== -->
+<section class="dock" id="dock" aria-label="Output dock">
+  <div class="dock-tabs" id="dockTabs">
+    <button class="dock-tab is-active" data-dock="output">Output</button>
+    <button class="dock-tab" data-dock="laws">Laws <span class="badge" id="lawBadge" hidden>0</span></button>
+    <button class="dock-tab" data-dock="problems">Problems <span class="badge badge-warn" id="probBadge" hidden>0</span></button>
+    <button class="dock-tab" data-dock="agent">Agent Sandbox</button>
+    <div class="dock-spacer"></div>
+    <span class="dock-conn" id="dockConn" title="Backend connection">
+      <span class="dot"></span><span id="dockConnLabel">demo data</span>
+    </span>
+    <button class="icon-btn" id="dockToggle" title="Toggle panel height" aria-label="Toggle dock">
+      <svg viewBox="0 0 16 16" class="ic"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+  <div class="dock-panes">
+    <pre class="dock-pane is-active" id="paneOutput" data-dock="output"></pre>
+    <div class="dock-pane" id="paneLaws" data-dock="laws"></div>
+    <div class="dock-pane" id="paneProblems" data-dock="problems"></div>
+    <div class="dock-pane" id="paneAgent" data-dock="agent"></div>
+  </div>
+</section>
+
+<!-- ===================== Status bar ===================== -->
+<footer class="statusbar" id="statusbar">
+  <span class="st st-branch"><svg viewBox="0 0 16 16" class="ic"><path d="M5 3.5a1.5 1.5 0 1 0-2 1.41V11.1a1.5 1.5 0 1 0 1 0V8.2c.5.5 1.2.8 2 .8h1.3a1.5 1.5 0 1 0 0-1H7c-1 0-2-.7-2-2V4.9A1.5 1.5 0 0 0 5 3.5Z" fill="currentColor"/></svg> <span id="stBranch">historical</span></span>
+  <span class="st" id="stEpoch">epoch 49</span>
+  <span class="st st-hash" id="stCommit" title="HEAD commit">7e1a2920bb7f</span>
+  <span class="st-spacer"></span>
+  <span class="st st-laws" id="stLaws">1 law failed</span>
+  <span class="st st-integrity" id="stIntegrity"><span class="dot dot-ok"></span> store clean</span>
+  <span class="st" id="stEngine">Pointerverse</span>
+</footer>
+
+<!-- ===================== Compare overlay ===================== -->
+<div class="overlay" id="compareOverlay" hidden>
+  <div class="modal modal-compare" role="dialog" aria-modal="true" aria-label="Branch compare">
+    <div class="modal-head">
+      <span>Branch compare</span>
+      <button class="icon-btn" id="compareClose" aria-label="Close">
+        <svg viewBox="0 0 16 16" class="ic"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="compareBody"></div>
+  </div>
+</div>
+
+<!-- ===================== Command palette ===================== -->
+<div class="overlay overlay-top" id="paletteOverlay" hidden>
+  <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
+    <input id="paletteInput" class="palette-input" placeholder="Type a command - run, fork, compare, sentinel, load mohacs..." autocomplete="off" />
+    <ul class="palette-list" id="paletteList"></ul>
+  </div>
+</div>
+
+<div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+<script src="js/data.js"></script>
+<script src="js/pv.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/graph.js"></script>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

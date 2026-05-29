@@ -19,3 +19,10 @@ audit.sarif
 *.user
 *.swp
 *.swo
+
+# Local Claude Code tooling config
+.claude/
+
+# Python bytecode (ui/serve.py)
+__pycache__/
+*.pyc

@@ -13,6 +13,62 @@ consequences, and check every step against your laws.
 World scripts / event logs / apps -> Kernel VM -> Runtime -> Store -> Sentinel
 ```
 
+## The workbench
+
+Pointerverse ships with a browser workbench - a causal IDE for forkable worlds.
+You write a world on the left, watch it become a typed graph on the right, run it
+into commits, and read the law check below. It is the same engine underneath; the
+UI is one more surface over it.
+
+![The Pointerverse workbench running the Mohacs 1526 pack](docs/ui/01-hero.png)
+
+Above, the `historical` fork of Mohács gives battle before its relief armies
+arrive, so the law `no_battle_before_reinforcements` fails the moment it is
+committed - a compiler error for a world, not for code. The status bar reads
+`1 law failed`; the offending line is flagged red in the editor and in the graph.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/ui/03-why.png" alt="The why panel explaining a relation"><br><b>Ask why a fact exists.</b> Click any relation and read its birth epoch, commit, branch, and the earlier facts it came from.</td>
+<td width="50%"><img src="docs/ui/02-law-view.png" alt="The law view lighting up the violating edge"><br><b>See the law break in the graph.</b> The rejected transition lights up red; the rest of the world dims around it.</td>
+</tr>
+<tr>
+<td><img src="docs/ui/04-compare.png" alt="Branch compare showing the first divergence"><br><b>Compare two afternoons.</b> The common ancestor, the first divergent commit, the outcome of each branch, and the object conflicts.</td>
+<td><img src="docs/ui/05-commit.png" alt="The content-addressed commit graph"><br><b>Read the content-addressed history.</b> The commit DAG for a branch, with the rejected transition marked in red and the fork point in teal.</td>
+</tr>
+<tr>
+<td><img src="docs/ui/06-rust-timeline.png" alt="An audit timeline finding where a run first broke"><br><b>Find where it first broke.</b> A solo Rust wipe day charted branch by branch - the hot beach base that lost the night, and the off-spine line that held.</td>
+<td><img src="docs/ui/07-agent.png" alt="The agent sandbox guarding proposed changes"><br><b>Guard an agent's changes.</b> Proposed edits run on a forked world and must clear your laws before they ever touch the real repository.</td>
+</tr>
+</table>
+
+On a phone or a narrow split it collapses to a focused, readable single column -
+deliberately limited, never broken:
+
+<p align="center"><img src="docs/ui/08-mobile.png" alt="The workbench in a compact mobile layout" width="300"></p>
+
+### Run the workbench locally
+
+The workbench is static files plus a small standard-library server - no build
+step and no npm install. From the repository root:
+
+```sh
+# Demo data only - renders everything above, needs nothing but Python 3
+python3 -m http.server 8787 --directory ui
+# then open http://localhost:8787
+```
+
+To drive the panels with the real engine, build the binary first; Run, Why,
+Compare, Replay, Audit, and Sentinel then call actual `pointerverse` commands and
+fall back to the demo data when one is unavailable:
+
+```sh
+cmake --build build
+python3 ui/serve.py            # serves http://localhost:8787, binds localhost only
+```
+
+See `ui/README.md` for the file layout.
+
 ## What it does - and what it doesn't
 
 Pointerverse **records and checks**; it does not predict. The history you give
