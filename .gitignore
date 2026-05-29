@@ -4,8 +4,15 @@ compile_commands.json
 
 # Pointerverse runtime stores
 .pvstore/
+*.pvstore/
 .pack-store/
 .kernel_stress*/
+.empire/
+
+# Generated reports
+audit-report.md
+audit-report.json
+audit.sarif
 
 # OS and editor files
 .DS_Store
