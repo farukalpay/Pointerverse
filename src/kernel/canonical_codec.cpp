@@ -346,11 +346,15 @@ TraceEvent decode_trace_event(CanonicalReader& reader) {
     event.event = reader.string();
     const auto field_count = checked_count(reader.u64());
     for (std::uint64_t index = 0; index < field_count; ++index) {
-        event.fields.emplace(reader.string(), reader.string());
+        const auto key = reader.string();
+        const auto value = reader.string();
+        event.fields.emplace(key, value);
     }
     const auto measurement_count = checked_count(reader.u64());
     for (std::uint64_t index = 0; index < measurement_count; ++index) {
-        event.measurements.emplace(reader.string(), reader.f64());
+        const auto key = reader.string();
+        const auto value = reader.f64();
+        event.measurements.emplace(key, value);
     }
     return event;
 }
@@ -769,12 +773,16 @@ WorldSnapshot decode_world_snapshot(CanonicalReader& reader) {
 
     const auto type_count = checked_count(reader.u64());
     for (std::uint64_t index = 0; index < type_count; ++index) {
-        snapshot.type_names.emplace(reader.u32(), reader.string());
+        const auto id = reader.u32();
+        const auto name = reader.string();
+        snapshot.type_names.emplace(id, name);
     }
 
     const auto relation_count = checked_count(reader.u64());
     for (std::uint64_t index = 0; index < relation_count; ++index) {
-        snapshot.relation_names.emplace(reader.u32(), reader.string());
+        const auto id = reader.u32();
+        const auto name = reader.string();
+        snapshot.relation_names.emplace(id, name);
     }
 
     const auto object_count = checked_count(reader.u64());
@@ -967,7 +975,9 @@ SymbolTableObject decode_symbol_table_object(CanonicalReader& reader) {
     SymbolTableObject table;
     const auto count = checked_count(reader.u64());
     for (std::uint64_t index = 0; index < count; ++index) {
-        table.names.emplace(reader.u32(), reader.string());
+        const auto id = reader.u32();
+        const auto name = reader.string();
+        table.names.emplace(id, name);
     }
     return table;
 }
