@@ -10,6 +10,7 @@
 #include <fmt/format.h>
 
 #include "pv/breakpoint/evidence_chain.hpp"
+#include "pv/intervention/intervention_search.hpp"
 #include "pv/kernel/canonical_codec.hpp"
 #include "pv/measure/intrinsic_edit_cost.hpp"
 #include "pv/projection/projection_store.hpp"
@@ -146,6 +147,13 @@ BreakpointMeasurement BreakpointMeasure::measure(
 
     measurement.filtration.breakpoint = breakpoint;
     try {
+        measurement.intervention_search = InterventionSearch{}.search(
+            repository,
+            store,
+            branch,
+            breakpoint,
+            verifier,
+            find_options);
         measurement.filtration = CounterfactualMeasure{}.filtration(
             repository,
             store,
@@ -155,6 +163,11 @@ BreakpointMeasurement BreakpointMeasure::measure(
             find_options);
     } catch (const std::exception&) {
         return measurement;
+    }
+
+    if (measurement.intervention_search.minimal_killing_program.has_value()) {
+        measurement.has_eliminating_repair = true;
+        measurement.severity = measurement.intervention_search.minimal_killing_program->canonical_cost;
     }
 
     for (const auto& sample : measurement.filtration.samples) {
@@ -217,6 +230,9 @@ std::string render_breakpoint_measure_text(const BreakpointMeasurement& measurem
         measurement.breakpoint.trigger.detail);
     output << fmt::format("severity:    {}\n", severity_text(measurement));
     output << fmt::format("compression: {:.6f}\n", measurement.compression);
+    if (!empty(measurement.intervention_search.search_id)) {
+        output << fmt::format("search id:   {}\n", to_hex(measurement.intervention_search.search_id).substr(0, 12));
+    }
     output << fmt::format(
         "filtration:  birth={} death={} persistence={:.6f} kill={}\n",
         scale_text(measurement.filtration.birth_scale),

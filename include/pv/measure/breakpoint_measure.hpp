@@ -10,6 +10,7 @@
 #include "pv/breakpoint/breakpoint.hpp"
 #include "pv/breakpoint/breakpoint_finder.hpp"
 #include "pv/breakpoint/repair_candidate.hpp"
+#include "pv/intervention/intervention_search.hpp"
 #include "pv/law/verifier.hpp"
 #include "pv/measure/counterfactual_measure.hpp"
 
@@ -26,6 +27,7 @@ struct BreakpointMeasurement {
     std::vector<std::string> evidence_chain_ids;
     std::vector<CounterfactualRepairMeasure> repairs;
     CounterfactualFiltration filtration;
+    InterventionSearchResult intervention_search;
 };
 
 class BreakpointMeasure {

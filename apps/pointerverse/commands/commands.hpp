@@ -22,6 +22,7 @@ std::unique_ptr<cli_app::Command> make_sentinel_command();
 std::unique_ptr<cli_app::Command> make_surface_command();
 std::unique_ptr<cli_app::Command> make_pack_command();
 std::unique_ptr<cli_app::Command> make_breakpoint_command();
+std::unique_ptr<cli_app::Command> make_intervention_command();
 
 void register_pointerverse_commands(cli_app::CommandRegistry& registry);
 

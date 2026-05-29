@@ -459,6 +459,51 @@ TEST_CASE("CLI ingest and audit commands produce reports") {
     std::filesystem::remove_all(repo_dir);
 }
 
+TEST_CASE("CLI intervention commands inspect replay-backed breakpoint algebra") {
+    const auto repo_dir = std::filesystem::temp_directory_path() / "pointerverse_cli_intervention";
+    std::filesystem::remove_all(repo_dir);
+    std::filesystem::create_directories(repo_dir);
+
+    const auto script_path = repo_dir / "world.pv";
+    const auto report_path = repo_dir / "intervention-report.txt";
+    const auto search_path = repo_dir / "intervention-search.txt";
+    {
+        std::ofstream script(script_path);
+        script << "object A : Entity\n"
+               << "object B : Entity\n"
+               << "link A -> B : causes\n"
+               << "link A -> B : causes\n";
+    }
+
+    const auto command =
+        "cd " + shell_quote(repo_dir)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo init .pvstore > " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo run " + shell_quote(script_path) + " --branch main >> " + shell_quote(report_path)
+        + " && BP=$(" + shell_quote(POINTERVERSE_CLI_PATH) + " breakpoint find main --store .pvstore | awk 'NR==3 {print $1}')"
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " intervention families main \"$BP\" --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " intervention refine main \"$BP\" --depth 2 --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " intervention search main \"$BP\" --max-depth 1 --max-composition 2 --store .pvstore > " + shell_quote(search_path)
+        + " && cat " + shell_quote(search_path) + " >> " + shell_quote(report_path)
+        + " && SID=$(awk '/search id:/ {print $3}' " + shell_quote(search_path) + ")"
+        + " && PID=$(awk '/  id:/ {print $2; exit}' " + shell_quote(search_path) + ")"
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " intervention trace main \"$SID\" --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " intervention lattice main \"$BP\" --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " intervention compose main \"$BP\" \"$PID\" \"$PID\" --store .pvstore >> " + shell_quote(report_path);
+
+    REQUIRE(std::system(command.c_str()) == 0);
+    const auto report = read_file(report_path);
+    REQUIRE(report.find("Intervention families") != std::string::npos);
+    REQUIRE(report.find("Intervention refinement") != std::string::npos);
+    REQUIRE(report.find("Intervention search") != std::string::npos);
+    REQUIRE(report.find("minimal killing program") != std::string::npos);
+    REQUIRE(report.find("Intervention trace") != std::string::npos);
+    REQUIRE(report.find("Intervention lattice") != std::string::npos);
+    REQUIRE(report.find("Intervention composition") != std::string::npos);
+    REQUIRE(report.find("redundant:    yes") != std::string::npos);
+
+    std::filesystem::remove_all(repo_dir);
+}
+
 TEST_CASE("CLI guard run audits PR demo and enforces strict mode") {
     const auto repo_dir = std::filesystem::temp_directory_path() / "pointerverse_cli_guard";
     std::filesystem::remove_all(repo_dir);

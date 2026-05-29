@@ -51,6 +51,27 @@ demos are checked, reproducible records, and they say so.
 The same engine drives every surface: Worlds and Realms, the forkable Repo,
 Guard for code diffs, Audit for event logs, and the Sentinel runtime.
 
+## Replay-backed interventions
+
+Breakpoints are measured through an intervention space, not by assigning a
+standalone weight. Pointerverse builds canonical operator families over exact
+dyadic scales, refines them deterministically, replays the resulting programs,
+and records where an equivalent breakpoint survives or dies. A breakpoint's
+severity is induced by the lowest-cost intervention program that kills it, while
+the filtration records birth scale, death scale, persistence, surviving regions,
+and evidence carried across scales.
+
+```sh
+./build/pointerverse intervention families main <breakpoint-id>
+./build/pointerverse intervention refine main <breakpoint-id> --depth 4
+./build/pointerverse intervention search main <breakpoint-id> --max-depth 4 --max-composition 2
+./build/pointerverse intervention trace main <search-id>
+./build/pointerverse intervention compose main <breakpoint-id> <left-id> <right-id>
+```
+
+Traces are derived views: they are recomputed from branch history, laws, deltas,
+and content-addressed commits rather than persisted as cache truth.
+
 ## Build
 
 Pointerverse uses C++23, CMake, Ninja, and vcpkg manifest mode.

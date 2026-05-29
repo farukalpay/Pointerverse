@@ -14,5 +14,14 @@
 
 `Trace`: A replayable JSONL event stream of committed and rejected transitions.
 
+`InterventionOperator`: A canonical transformation descriptor used to replay a
+branch history under a counterfactual change.
+
+`InterventionProgram`: An ordered composition of intervention operators with a
+canonical hash and cost.
+
+`ScaleValue`: An exact dyadic rational scale used to refine intervention
+families without floating-point ambiguity.
+
 `Realm`: A world built and forked on the engine rather than a core primitive;
 it ships today as the Mohács campaign demo pack.

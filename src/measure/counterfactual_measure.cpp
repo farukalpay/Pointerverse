@@ -3,181 +3,24 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cmath>
-#include <filesystem>
-#include <map>
 #include <optional>
-#include <sstream>
 #include <stdexcept>
-#include <variant>
+#include <utility>
 
 #include <fmt/format.h>
 
+#include "pv/intervention/intervention_search.hpp"
 #include "pv/measure/intrinsic_edit_cost.hpp"
 #include "pv/projection/projection_store.hpp"
-#include "pv/storage/object_codec.hpp"
-#include "pv/storage/repository.hpp"
 
 namespace pv {
 namespace {
-
-struct DelayedRelation {
-    std::string from;
-    std::string to;
-    std::string relation;
-    CausalRole role{CausalRole::Structural};
-    double weight{1.0};
-    std::string law_domain{"core"};
-    std::optional<TraceEvent> graph_event;
-};
-
-std::string field_or(const TraceEvent& event, std::string_view name, std::string fallback = {}) {
-    const auto iter = event.fields.find(std::string{name});
-    return iter == event.fields.end() ? std::move(fallback) : iter->second;
-}
-
-std::string event_evidence_id(const TraceEvent& event) {
-    const auto source = field_or(event, "source");
-    const auto id = field_or(event, "id", field_or(event, "event_id"));
-    if (source.empty() || id.empty()) {
-        return {};
-    }
-    return source + "/" + id;
-}
-
-std::uint64_t next_pointer_value(const WorldSnapshot& snapshot) noexcept {
-    std::uint64_t next = 1;
-    for (const auto& pointer : snapshot.pointers) {
-        next = std::max(next, pointer.id.value + 1);
-    }
-    return next;
-}
-
-std::uint32_t next_relation_value(const WorldSnapshot& snapshot, const Delta& delta) noexcept {
-    std::uint32_t next = 1;
-    for (const auto& [id, _] : snapshot.relation_names) {
-        next = std::max(next, id + 1);
-    }
-    for (const auto& op : delta.ops) {
-        if (op.kind == OperationKind::InternRelation) {
-            next = std::max(next, std::get<InternRelationOp>(op.body).id.id + 1);
-        }
-    }
-    return next;
-}
-
-std::optional<RelationType> relation_named(const WorldSnapshot& snapshot, std::string_view name) {
-    for (const auto& [id, candidate] : snapshot.relation_names) {
-        if (candidate == name) {
-            return RelationType{id};
-        }
-    }
-    return std::nullopt;
-}
-
-std::optional<std::string> object_name_for_ref(
-    const WorldSnapshot& before,
-    const std::map<std::uint32_t, std::string>& temp_objects,
-    const ObjectRef& ref) {
-    if (const auto* object = std::get_if<ObjectId>(&ref)) {
-        const auto* snapshot = before.object(*object);
-        if (snapshot == nullptr) {
-            return std::nullopt;
-        }
-        return snapshot->name;
-    }
-    const auto temp = std::get<TempObjectId>(ref);
-    const auto iter = temp_objects.find(temp.value);
-    if (iter == temp_objects.end()) {
-        return std::nullopt;
-    }
-    return iter->second;
-}
 
 bool same_relation_set(std::vector<std::string> left, std::vector<std::string> right) {
     std::ranges::sort(left);
     std::ranges::sort(right);
     return left == right;
-}
-
-std::vector<std::string> sorted_unique_strings(std::vector<std::string> values) {
-    std::ranges::sort(values);
-    values.erase(std::ranges::unique(values).begin(), values.end());
-    return values;
-}
-
-std::vector<double> scale_samples(CounterfactualFiltrationOptions options) {
-    std::vector<double> scales;
-    if (!options.scales.empty()) {
-        scales.reserve(options.scales.size() + 2);
-        for (const auto scale : options.scales) {
-            scales.push_back(std::clamp(scale, 0.0, 1.0));
-        }
-    } else {
-        const auto intervals = std::max<std::size_t>(1, options.intervals);
-        scales.reserve(intervals + 1);
-        for (std::size_t index = 0; index <= intervals; ++index) {
-            scales.push_back(static_cast<double>(index) / static_cast<double>(intervals));
-        }
-    }
-
-    scales.push_back(0.0);
-    scales.push_back(1.0);
-    std::ranges::sort(scales);
-    scales.erase(std::unique(scales.begin(), scales.end(), [](double left, double right) {
-        return std::abs(left - right) < 0.000000001;
-    }), scales.end());
-    return scales;
-}
-
-CounterfactualInterventionKind intervention_for_scale(double scale) noexcept {
-    if (scale <= 0.0) {
-        return CounterfactualInterventionKind::Identity;
-    }
-    constexpr std::array ordered{
-        CounterfactualInterventionKind::ConstrainTriggeringRelation,
-        CounterfactualInterventionKind::DelayTriggeringRelation,
-        CounterfactualInterventionKind::ReplaceTriggeringRelation,
-        CounterfactualInterventionKind::RemoveTriggeringRelation
-    };
-    const auto clamped = std::clamp(scale, 0.0, 1.0);
-    const auto bucket = std::min<std::size_t>(
-        ordered.size() - 1,
-        static_cast<std::size_t>(std::ceil(clamped * static_cast<double>(ordered.size()))) - 1U);
-    return ordered[bucket];
-}
-
-RepairAction repair_action(CounterfactualInterventionKind intervention) {
-    switch (intervention) {
-    case CounterfactualInterventionKind::ConstrainTriggeringRelation:
-        return RepairAction::ConstrainTriggeringRelation;
-    case CounterfactualInterventionKind::DelayTriggeringRelation:
-        return RepairAction::DelayTriggeringRelation;
-    case CounterfactualInterventionKind::ReplaceTriggeringRelation:
-        return RepairAction::ReplaceTriggeringRelation;
-    case CounterfactualInterventionKind::RemoveTriggeringRelation:
-        return RepairAction::RemoveTriggeringRelation;
-    case CounterfactualInterventionKind::Identity:
-        break;
-    }
-    throw std::invalid_argument("identity intervention has no repair action");
-}
-
-const RepairCandidate* candidate_for_intervention(
-    const std::vector<RepairCandidate>& candidates,
-    CounterfactualInterventionKind intervention) {
-    if (intervention == CounterfactualInterventionKind::Identity) {
-        return nullptr;
-    }
-    const auto action = repair_action(intervention);
-    const auto iter = std::ranges::find_if(candidates, [&](const RepairCandidate& candidate) {
-        return candidate.action == action;
-    });
-    if (iter == candidates.end()) {
-        return nullptr;
-    }
-    return &*iter;
 }
 
 bool overlapping_entities(const std::vector<std::string>& left, const std::vector<std::string>& right) {
@@ -186,349 +29,107 @@ bool overlapping_entities(const std::vector<std::string>& left, const std::vecto
     });
 }
 
-bool graph_event_matches(const TraceEvent& event, const RepairCandidate& candidate) {
-    if (event.event != "graph.event") {
-        return false;
-    }
-    const auto evidence = event_evidence_id(event);
-    if (!candidate.trigger.evidence_event_id.empty() && evidence == candidate.trigger.evidence_event_id) {
-        return true;
-    }
-    return field_or(event, "from") == candidate.trigger.from
-        && field_or(event, "to") == candidate.trigger.to
-        && field_or(event, "relation") == candidate.trigger.relation;
+std::vector<std::string> sorted_unique_strings(std::vector<std::string> values) {
+    std::ranges::sort(values);
+    values.erase(std::ranges::unique(values).begin(), values.end());
+    return values;
 }
 
-bool pointer_create_matches(
-    PointerId predicted,
-    const WorldSnapshot& before,
-    const std::map<std::uint32_t, std::string>& temp_objects,
-    const std::map<std::uint32_t, std::string>& relations,
-    const CreatePointerOp& create,
-    const RepairCandidate& candidate) {
-    if (candidate.pointer.valid() && predicted == candidate.pointer) {
-        return true;
+std::uint8_t depth_for_intervals(std::size_t intervals) {
+    intervals = std::max<std::size_t>(1, intervals);
+    std::uint8_t depth = 0;
+    std::size_t count = 1;
+    while (count < intervals && depth < 16) {
+        count <<= 1U;
+        depth += 1U;
     }
-    const auto from = object_name_for_ref(before, temp_objects, create.from);
-    const auto to = object_name_for_ref(before, temp_objects, create.to);
-    const auto relation = relations.find(create.relation.id);
-    return from.has_value()
-        && to.has_value()
-        && relation != relations.end()
-        && *from == candidate.trigger.from
-        && *to == candidate.trigger.to
-        && relation->second == candidate.trigger.relation;
+    return depth;
 }
 
-bool pointer_op_targets_skipped(const Operation& op, PointerId skipped) {
-    if (!skipped.valid()) {
-        return false;
-    }
-    switch (op.kind) {
-    case OperationKind::ExpirePointer:
-        return std::get<ExpirePointerOp>(op.body).id == skipped;
-    case OperationKind::SetPointerWeight:
-        return std::get<SetPointerWeightOp>(op.body).id == skipped;
-    case OperationKind::SetPointerAttribute:
-        return std::get<SetPointerAttributeOp>(op.body).id == skipped;
-    case OperationKind::RemovePointerAttribute:
-        return std::get<RemovePointerAttributeOp>(op.body).id == skipped;
-    case OperationKind::AssertPointer:
-        return std::get<AssertPointerOp>(op.body).id == skipped;
-    default:
-        return false;
-    }
+ScaleValue scale_from_double(double value) {
+    const auto clamped = std::clamp(value, 0.0, 1.0);
+    constexpr std::uint8_t exponent = 10;
+    const auto denominator = std::uint64_t{1} << exponent;
+    const auto numerator = static_cast<std::uint64_t>(std::llround(clamped * static_cast<double>(denominator)));
+    return ScaleValue::dyadic(numerator, exponent);
 }
 
-void append_reindexed(Delta& delta, Operation op) {
-    op.id = {};
-    delta.append(std::move(op));
+std::vector<ScaleValue> scale_samples(CounterfactualFiltrationOptions options) {
+    if (options.scales.empty()) {
+        return dyadic_refinement_scales(depth_for_intervals(options.intervals));
+    }
+    std::vector<ScaleValue> scales;
+    scales.reserve(options.scales.size() + 2);
+    for (const auto scale : options.scales) {
+        scales.push_back(scale_from_double(scale));
+    }
+    scales.push_back(ScaleValue::zero());
+    scales.push_back(ScaleValue::one());
+    std::ranges::sort(scales);
+    scales.erase(std::ranges::unique(scales).begin(), scales.end());
+    return scales;
 }
 
-struct EditedDelta {
-    Delta delta;
-    std::optional<DelayedRelation> delayed;
-    bool changed{false};
-};
-
-EditedDelta edit_delta(
-    const WorldSnapshot& before,
-    const Delta& original,
-    const RepairCandidate& candidate) {
-    EditedDelta edited;
-    std::map<std::uint32_t, std::string> temp_objects;
-    std::map<std::uint32_t, std::string> relations = before.relation_names;
-    PointerId skipped_pointer;
-    std::uint64_t next_pointer = next_pointer_value(before);
-
-    RelationType replacement_relation;
-    if (candidate.action == RepairAction::ReplaceTriggeringRelation) {
-        if (auto existing = relation_named(before, candidate.replacement_relation); existing.has_value()) {
-            replacement_relation = *existing;
-        } else {
-            replacement_relation = RelationType{next_relation_value(before, original)};
-            edited.delta.append_intern_relation(candidate.replacement_relation, replacement_relation);
-            relations.emplace(replacement_relation.id, candidate.replacement_relation);
-        }
+CounterfactualInterventionKind intervention_for_scale(ScaleValue scale) noexcept {
+    if (scale == ScaleValue::zero()) {
+        return CounterfactualInterventionKind::Identity;
     }
-
-    for (const auto& op : original.ops) {
-        if (op.kind == OperationKind::CreateObject) {
-            const auto& create = std::get<CreateObjectOp>(op.body);
-            temp_objects.emplace(create.temp_id.value, create.name);
-            append_reindexed(edited.delta, op);
-            continue;
-        }
-        if (op.kind == OperationKind::InternRelation) {
-            const auto& intern = std::get<InternRelationOp>(op.body);
-            relations.emplace(intern.id.id, intern.name);
-            append_reindexed(edited.delta, op);
-            continue;
-        }
-        if (pointer_op_targets_skipped(op, skipped_pointer)) {
-            edited.changed = true;
-            continue;
-        }
-        if (op.kind == OperationKind::CreatePointer) {
-            auto create = std::get<CreatePointerOp>(op.body);
-            const auto predicted = PointerId{next_pointer++};
-            if (pointer_create_matches(predicted, before, temp_objects, relations, create, candidate)) {
-                edited.changed = true;
-                if (candidate.action == RepairAction::RemoveTriggeringRelation) {
-                    skipped_pointer = predicted;
-                    continue;
-                }
-                if (candidate.action == RepairAction::DelayTriggeringRelation) {
-                    skipped_pointer = predicted;
-                    const auto from = object_name_for_ref(before, temp_objects, create.from);
-                    const auto to = object_name_for_ref(before, temp_objects, create.to);
-                    const auto relation = relations.find(create.relation.id);
-                    if (from.has_value() && to.has_value() && relation != relations.end()) {
-                        edited.delayed = DelayedRelation{
-                            *from,
-                            *to,
-                            relation->second,
-                            create.causal_role,
-                            create.weight.value,
-                            create.law_domain,
-                            std::nullopt
-                        };
-                    }
-                    continue;
-                }
-                if (candidate.action == RepairAction::ConstrainTriggeringRelation) {
-                    create.weight = Weight{candidate.replacement_weight.value_or(create.weight.value)};
-                }
-                if (candidate.action == RepairAction::ReplaceTriggeringRelation) {
-                    create.relation = replacement_relation;
-                }
-            }
-            append_reindexed(edited.delta, Operation{{}, OperationKind::CreatePointer, std::move(create)});
-            continue;
-        }
-        if (op.kind == OperationKind::EmitEvent) {
-            auto event = std::get<EmitEventOp>(op.body).event;
-            if (graph_event_matches(event, candidate)) {
-                edited.changed = true;
-                if (candidate.action == RepairAction::RemoveTriggeringRelation) {
-                    continue;
-                }
-                if (candidate.action == RepairAction::DelayTriggeringRelation) {
-                    if (edited.delayed.has_value()) {
-                        edited.delayed->graph_event = event;
-                    }
-                    continue;
-                }
-                if (candidate.action == RepairAction::ReplaceTriggeringRelation) {
-                    event.fields["relation"] = candidate.replacement_relation;
-                }
-            }
-            append_reindexed(edited.delta, Operation{{}, OperationKind::EmitEvent, EmitEventOp{std::move(event)}});
-            continue;
-        }
-        append_reindexed(edited.delta, op);
-    }
-
-    return edited;
-}
-
-std::filesystem::path temp_repository_path() {
-    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    return std::filesystem::temp_directory_path() / ("pointerverse_counterfactual_" + std::to_string(stamp));
-}
-
-void commit_delta(
-    Repository& repository,
-    std::string_view branch,
-    Delta delta,
-    std::string label,
-    const Verifier& verifier) {
-    if (delta.empty()) {
-        return;
-    }
-    Transaction tx;
-    tx.origin = TransactionOrigin::Replay;
-    tx.label = std::move(label);
-    tx.delta = std::move(delta);
-    const auto record = repository.commit(branch, std::move(tx), verifier);
-    if (!record.has_value() || !record->accepted) {
-        throw std::runtime_error("counterfactual replay commit was rejected");
-    }
-}
-
-void append_delayed(
-    Repository& repository,
-    std::string_view branch,
-    const DelayedRelation& delayed,
-    const Verifier& verifier) {
-    auto& world = repository.mutable_world(branch);
-    Delta delta;
-    delta.append_link(PointerCreate{
-        ObjectRef{world.object_by_name(delayed.from)},
-        ObjectRef{world.object_by_name(delayed.to)},
-        world.relation_type(delayed.relation),
-        delayed.role,
-        Weight{delayed.weight},
-        delayed.law_domain,
-        {}
-    });
-    auto event = delayed.graph_event.value_or(TraceEvent{
-        {},
-        "graph.event",
-        {
-            {"source", "counterfactual"},
-            {"id", "delayed"},
-            {"from", delayed.from},
-            {"relation", delayed.relation},
-            {"to", delayed.to}
-        },
-        {}
-    });
-    event.epoch = {};
-    event.fields["from"] = delayed.from;
-    event.fields["to"] = delayed.to;
-    event.fields["relation"] = delayed.relation;
-    delta.append_event(std::move(event));
-    commit_delta(repository, branch, std::move(delta), "counterfactual delay", verifier);
-}
-
-std::vector<Breakpoint> replay_breakpoints(
-    const Repository& source,
-    std::string_view branch,
-    const RepairCandidate* candidate,
-    const Verifier& verifier,
-    BreakpointFindOptions find_options,
-    bool& changed) {
-    const auto history = source.backend().history(branch);
-    if (history.empty()) {
-        throw std::runtime_error("cannot replay an empty branch history");
-    }
-
-    const auto temp_root = temp_repository_path();
-    std::filesystem::remove_all(temp_root);
-    auto cleanup = [&] {
-        std::error_code ignored;
-        std::filesystem::remove_all(temp_root, ignored);
+    constexpr std::array ordered{
+        CounterfactualInterventionKind::ConstrainTriggeringRelation,
+        CounterfactualInterventionKind::DelayTriggeringRelation,
+        CounterfactualInterventionKind::ReplaceTriggeringRelation,
+        CounterfactualInterventionKind::RemoveTriggeringRelation
     };
-
-    auto repository = Repository::init(temp_root);
-    const auto genesis = source.backend().snapshot(history.front().id);
-    (void)repository.create_branch(std::string{branch}, World::from_snapshot(genesis));
-
-    std::optional<DelayedRelation> delayed;
-    try {
-        for (std::size_t index = 1; index < history.size(); ++index) {
-            const auto& record = history[index];
-            if (record.origin == TransactionOrigin::Internal) {
-                continue;
-            }
-            const auto stored = source.backend().stored_commit(record.id);
-            const auto original = source.objects().get_canonical<Delta>(stored.delta_object);
-            const auto before = repository.world(branch).snapshot();
-            auto edited = candidate != nullptr && record.id == candidate->trigger.commit
-                ? edit_delta(before, original, *candidate)
-                : EditedDelta{original, std::nullopt, false};
-            changed = changed || edited.changed;
-            if (edited.delayed.has_value()) {
-                delayed = std::move(edited.delayed);
-            }
-            commit_delta(repository, branch, std::move(edited.delta), record.label, verifier);
-        }
-        if (delayed.has_value()) {
-            append_delayed(repository, branch, *delayed, verifier);
-        }
-
-        ProjectionStore store{repository};
-        auto breakpoints = BreakpointFinder{}.find(store, branch, find_options);
-        cleanup();
-        return breakpoints;
-    } catch (...) {
-        cleanup();
-        throw;
-    }
+    const auto bucket = std::min<std::size_t>(
+        ordered.size() - 1,
+        static_cast<std::size_t>(std::ceil(scale.to_double() * static_cast<double>(ordered.size()))) - 1U);
+    return ordered[bucket];
 }
 
-struct ReplayEvaluation {
-    bool replayed{false};
-    bool changed{false};
-    bool survives{true};
-    std::optional<Breakpoint> survivor;
-    std::string explanation;
-};
-
-ReplayEvaluation replay_and_match(
-    const Repository& repository,
-    std::string_view branch,
-    const Breakpoint& breakpoint,
-    const RepairCandidate* candidate,
-    const Verifier& verifier,
-    BreakpointFindOptions find_options) {
-    ReplayEvaluation result;
-    try {
-        bool changed = false;
-        const auto repaired = replay_breakpoints(
-            repository,
-            branch,
-            candidate,
-            verifier,
-            find_options,
-            changed);
-        result.replayed = true;
-        result.changed = changed;
-        result.survivor = surviving_breakpoint(breakpoint, repaired);
-        result.survives = result.survivor.has_value();
-        if (candidate == nullptr) {
-            result.explanation = result.survives
-                ? "equivalent breakpoint survived identity replay"
-                : "equivalent breakpoint did not survive identity replay";
-        } else if (!changed) {
-            result.explanation = "candidate did not edit the replayed history";
-        } else {
-            result.explanation = result.survives
-                ? "equivalent breakpoint survived counterfactual replay"
-                : "equivalent breakpoint did not survive counterfactual replay";
-        }
-    } catch (const std::exception& error) {
-        result.replayed = false;
-        result.changed = false;
-        result.survives = true;
-        result.explanation = fmt::format("counterfactual replay failed: {}", error.what());
+InterventionKind intervention_kind(CounterfactualInterventionKind kind) {
+    switch (kind) {
+    case CounterfactualInterventionKind::Identity:
+        return InterventionKind::Identity;
+    case CounterfactualInterventionKind::ConstrainTriggeringRelation:
+        return InterventionKind::ConstrainTriggeringRelation;
+    case CounterfactualInterventionKind::DelayTriggeringRelation:
+        return InterventionKind::DelayTriggeringRelation;
+    case CounterfactualInterventionKind::ReplaceTriggeringRelation:
+        return InterventionKind::ReplaceTriggeringRelation;
+    case CounterfactualInterventionKind::RemoveTriggeringRelation:
+        return InterventionKind::RemoveTriggeringRelation;
     }
-    return result;
+    return InterventionKind::Identity;
 }
 
-CounterfactualRepairMeasure repair_measure_from_evaluation(
+const OperatorFamily* family_for(
+    const std::vector<OperatorFamily>& families,
+    CounterfactualInterventionKind kind) {
+    const auto target = intervention_kind(kind);
+    const auto iter = std::ranges::find_if(families, [&](const OperatorFamily& family) {
+        return family.kind == target;
+    });
+    if (iter == families.end()) {
+        return nullptr;
+    }
+    return &*iter;
+}
+
+CounterfactualRepairMeasure repair_measure_from_trace(
     const RepairCandidate& candidate,
-    const ReplayEvaluation& evaluation) {
+    const InterventionTrace& trace) {
     CounterfactualRepairMeasure result;
     result.candidate = candidate;
     const auto cost = IntrinsicEditCost{}.measure(candidate.script);
     result.canonical_cost = cost.value;
     result.canonical_script = cost.canonical_script;
-    result.replayed = evaluation.changed;
-    result.survives = evaluation.survives;
-    result.survivor = evaluation.survivor;
-    result.explanation = evaluation.explanation;
+    result.replayed = trace.transformed;
+    result.survives = trace.survives;
+    result.survivor = trace.survivor;
+    result.explanation = trace.explanation;
+    if (!trace.transformed) {
+        result.explanation = "candidate did not edit the replayed history";
+    }
     return result;
 }
 
@@ -651,11 +252,30 @@ CounterfactualRepairMeasure CounterfactualMeasure::evaluate(
     const RepairCandidate& candidate,
     const Verifier* verifier,
     BreakpointFindOptions find_options) const {
-    Verifier default_verifier;
-    const auto& replay_verifier = verifier == nullptr ? default_verifier : *verifier;
-    return repair_measure_from_evaluation(
-        candidate,
-        replay_and_match(repository, branch, breakpoint, &candidate, replay_verifier, find_options));
+    const auto op = intervention_operator_from_repair(candidate, ScaleValue::one());
+    const auto program = make_intervention_program({op});
+    ProjectionStore store{repository};
+    InterventionSearchOptions options;
+    options.max_depth = 0;
+    options.max_composition = 1;
+    try {
+        const auto trace = InterventionSearch{}.trace(
+            repository,
+            store,
+            branch,
+            breakpoint,
+            program,
+            verifier,
+            find_options,
+            options);
+        return repair_measure_from_trace(candidate, trace);
+    } catch (const std::exception& error) {
+        auto failed = repair_measure_from_trace(candidate, InterventionTrace{});
+        failed.replayed = false;
+        failed.survives = true;
+        failed.explanation = fmt::format("counterfactual replay failed: {}", error.what());
+        return failed;
+    }
 }
 
 CounterfactualFiltration CounterfactualMeasure::filtration(
@@ -669,32 +289,57 @@ CounterfactualFiltration CounterfactualMeasure::filtration(
     CounterfactualFiltration result;
     result.breakpoint = breakpoint;
 
-    Verifier default_verifier;
-    const auto& replay_verifier = verifier == nullptr ? default_verifier : *verifier;
-    const auto candidates = RepairCandidateBuilder{}.build_all(store, branch, breakpoint);
+    const auto families = OperatorFamilyBuilder{}.build(store, branch, breakpoint);
+    InterventionSearchOptions search_options;
+    search_options.max_depth = depth_for_intervals(options.intervals);
+    search_options.max_composition = 1;
+
     for (const auto scale : scale_samples(std::move(options))) {
         CounterfactualFiltrationSample sample;
-        sample.scale = scale;
+        sample.scale = scale.to_double();
         sample.intervention = intervention_for_scale(scale);
 
-        const auto* candidate = candidate_for_intervention(candidates, sample.intervention);
-        const auto evaluation = replay_and_match(
-            repository,
-            branch,
-            breakpoint,
-            candidate,
-            replay_verifier,
-            find_options);
+        InterventionProgram program = identity_intervention_program();
+        const OperatorFamily* family = nullptr;
+        if (sample.intervention != CounterfactualInterventionKind::Identity) {
+            family = family_for(families, sample.intervention);
+            if (family == nullptr) {
+                sample.replayed = false;
+                sample.transformed = false;
+                sample.survives = true;
+                sample.explanation = "no operator family available for scale";
+                result.samples.push_back(std::move(sample));
+                continue;
+            }
+            const auto op = make_operator(*family, scale);
+            program = make_intervention_program({op});
+            sample.candidate = repair_candidate_from_operator(op);
+        }
 
-        sample.replayed = evaluation.replayed;
-        sample.transformed = evaluation.changed;
-        sample.survives = evaluation.survives;
-        sample.survivor = evaluation.survivor;
-        sample.evidence_ids = sample_evidence(sample.survivor);
-        sample.explanation = evaluation.explanation;
-        if (candidate != nullptr) {
-            sample.candidate = *candidate;
-            sample.repair = repair_measure_from_evaluation(*candidate, evaluation);
+        try {
+            const auto trace = InterventionSearch{}.trace(
+                repository,
+                store,
+                branch,
+                breakpoint,
+                program,
+                verifier,
+                find_options,
+                search_options);
+            sample.replayed = trace.replayed;
+            sample.transformed = trace.transformed;
+            sample.survives = trace.survives;
+            sample.survivor = trace.survivor;
+            sample.evidence_ids = sample_evidence(sample.survivor);
+            sample.explanation = trace.explanation;
+            if (sample.candidate.has_value()) {
+                sample.repair = repair_measure_from_trace(*sample.candidate, trace);
+            }
+        } catch (const std::exception& error) {
+            sample.replayed = false;
+            sample.transformed = false;
+            sample.survives = true;
+            sample.explanation = fmt::format("counterfactual replay failed: {}", error.what());
         }
         result.samples.push_back(std::move(sample));
     }

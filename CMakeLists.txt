@@ -144,6 +144,19 @@ add_library(pointerverse_breakpoint
 pointerverse_configure_target(pointerverse_breakpoint)
 target_link_libraries(pointerverse_breakpoint PUBLIC pointerverse_projection)
 
+add_library(pointerverse_intervention
+    src/intervention/scale_value.cpp
+    src/intervention/operator.cpp
+    src/intervention/operator_family.cpp
+    src/intervention/operator_program.cpp
+    src/intervention/refinement_tree.cpp
+    src/intervention/intervention_lattice.cpp
+    src/intervention/intervention_search.cpp
+    src/intervention/intervention_trace.cpp
+)
+pointerverse_configure_target(pointerverse_intervention)
+target_link_libraries(pointerverse_intervention PUBLIC pointerverse_breakpoint pointerverse_storage)
+
 add_library(pointerverse_measure
     src/measure/component_record.cpp
     src/measure/risk_value.cpp
@@ -174,6 +187,7 @@ target_link_libraries(pointerverse_measure
         pointerverse_storage
         pointerverse_query
         pointerverse_breakpoint
+        pointerverse_intervention
 )
 
 add_library(pointerverse_rules
@@ -282,6 +296,7 @@ target_link_libraries(pointerverse_sdk
         pointerverse_normalize
         pointerverse_projection
         pointerverse_breakpoint
+        pointerverse_intervention
         pointerverse_decision
 )
 
@@ -294,6 +309,7 @@ add_executable(pointerverse
     apps/pointerverse/commands/decide_command.cpp
     apps/pointerverse/commands/guard_command.cpp
     apps/pointerverse/commands/ingest_command.cpp
+    apps/pointerverse/commands/intervention_command.cpp
     apps/pointerverse/commands/measure_command.cpp
     apps/pointerverse/commands/pack_command.cpp
     apps/pointerverse/commands/pack_runner.cpp
@@ -312,6 +328,7 @@ target_link_libraries(pointerverse
         pointerverse_guard
         pointerverse_audit
         pointerverse_measure
+        pointerverse_intervention
         pointerverse_ingest
         pointerverse_source
         pointerverse_normalize
@@ -386,6 +403,11 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/measure/law_measure_tests.cpp
         tests/measure/repair_measure_tests.cpp
         tests/measure/intrinsic_edit_cost_tests.cpp
+        tests/intervention/scale_value_tests.cpp
+        tests/intervention/operator_program_tests.cpp
+        tests/intervention/refinement_tree_tests.cpp
+        tests/intervention/intervention_lattice_tests.cpp
+        tests/intervention/intervention_search_tests.cpp
         tests/measure/counterfactual_measure_tests.cpp
         tests/measure/breakpoint_measure_tests.cpp
         tests/measure/history_measure_tests.cpp
@@ -435,6 +457,7 @@ if(POINTERVERSE_BUILD_TESTS)
             pointerverse_breakpoint
             pointerverse_decision
             pointerverse_measure
+            pointerverse_intervention
             pointerverse_audit
             pointerverse_guard
             Catch2::Catch2WithMain
