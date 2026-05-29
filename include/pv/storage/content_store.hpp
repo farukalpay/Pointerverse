@@ -60,7 +60,8 @@ public:
 
     template <class T>
     [[nodiscard]] T get_canonical(Hash256 id) const {
-        return decode_canonical<T>(get_bytes(id));
+        const auto bytes = get_bytes(id);
+        return decode_canonical<T>(std::span<const std::byte>{bytes.data(), bytes.size()});
     }
 
 private:
