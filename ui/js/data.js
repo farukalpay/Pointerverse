@@ -49,25 +49,25 @@ object Buda : Kingdom
 object Kingdom_of_Hungary : Kingdom
 
 # Ottoman command and order of battle
-link Suleiman_I -> OttomanArmy : commands weight=1.0 role=Generative
-link Ibrahim_Pasha -> OttomanArmy : leads weight=0.9 role=Generative
-link Janissaries -> OttomanArmy : reinforces weight=0.85
-link OttomanArtillery -> OttomanArmy : reinforces weight=0.85
-link OttomanArmy -> Mohacs_Field : deploys weight=1.0
+link Suleiman_I -> OttomanArmy : commands weight=auto role=Generative
+link Ibrahim_Pasha -> OttomanArmy : leads weight=auto role=Generative
+link Janissaries -> OttomanArmy : reinforces weight=auto
+link OttomanArtillery -> OttomanArmy : reinforces weight=auto
+link OttomanArmy -> Mohacs_Field : deploys weight=auto
 
 # Hungarian command and order of battle
-link Louis_II -> Kingdom_of_Hungary : rules weight=1.0 role=Generative
-link Louis_II -> HungarianArmy : commands weight=1.0 role=Generative
-link Pal_Tomori -> HungarianArmy : leads weight=0.9 role=Generative
-link HungarianCavalry -> HungarianArmy : reinforces weight=0.8
-link HungarianArtillery -> HungarianArmy : reinforces weight=0.6
-link HungarianArmy -> Mohacs_Field : deploys weight=1.0
+link Louis_II -> Kingdom_of_Hungary : rules weight=auto role=Generative
+link Louis_II -> HungarianArmy : commands weight=auto role=Generative
+link Pal_Tomori -> HungarianArmy : leads weight=auto role=Generative
+link HungarianCavalry -> HungarianArmy : reinforces weight=auto
+link HungarianArtillery -> HungarianArmy : reinforces weight=auto
+link HungarianArmy -> Mohacs_Field : deploys weight=auto
 
 # The relief armies on the road
-link Janos_Szapolyai -> TransylvanianArmy : commands weight=0.9 role=Generative
-link Christoph_Frankopan -> CroatianForce : commands weight=0.9 role=Generative
-link TransylvanianArmy -> Mohacs_Field : marches_to weight=0.6
-link CroatianForce -> Mohacs_Field : marches_to weight=0.5
+link Janos_Szapolyai -> TransylvanianArmy : commands weight=auto role=Generative
+link Christoph_Frankopan -> CroatianForce : commands weight=auto role=Generative
+link TransylvanianArmy -> Mohacs_Field : marches_to weight=auto
+link CroatianForce -> Mohacs_Field : marches_to weight=auto
 
 evolve 2
 inspect object HungarianArmy
@@ -84,18 +84,18 @@ domain load examples/packs/mohacs/mohacs_rules.pvdomain
 law add no_battle_before_reinforcements
 
 # The fatal decision: give battle with the relief armies still on the road.
-link HungarianArmy -> Mohacs_Field : gives_battle weight=1.0 role=Generative date=1526-08-29
+link HungarianArmy -> Mohacs_Field : gives_battle weight=auto role=Generative date=1526-08-29
 
 # The afternoon, in order.
-link HungarianCavalry -> OttomanArmy : charges weight=0.9 role=Generative
-link OttomanArtillery -> HungarianCavalry : breaks weight=0.95 role=Inhibitory
-link Gazi_Bali_Bey -> HungarianArmy : encircles weight=0.9 role=Generative
-link OttomanArmy -> HungarianArmy : routs weight=1.0 role=Generative casualties=14000
-link OttomanArmy -> Louis_II : defeats weight=1.0 role=Generative date=1526-08-29
+link HungarianCavalry -> OttomanArmy : charges weight=auto role=Generative
+link OttomanArtillery -> HungarianCavalry : breaks weight=auto role=Inhibitory
+link Gazi_Bali_Bey -> HungarianArmy : encircles weight=auto role=Generative
+link OttomanArmy -> HungarianArmy : routs weight=auto role=Generative casualties=14000
+link OttomanArmy -> Louis_II : defeats weight=auto role=Generative date=1526-08-29
 
 object Csele_Stream : River
-link Louis_II -> Csele_Stream : drowns_in weight=1.0 role=Generative
-link OttomanArmy -> Buda : advances weight=0.9 role=Generative
+link Louis_II -> Csele_Stream : drowns_in weight=auto role=Generative
+link OttomanArmy -> Buda : advances weight=auto role=Generative
 
 evolve 2
 inspect object Louis_II
@@ -112,18 +112,18 @@ domain load examples/packs/mohacs/mohacs_rules.pvdomain
 law add no_battle_before_reinforcements
 
 # The relief armies arrive and join the royal army.
-link TransylvanianArmy -> HungarianArmy : reinforces weight=0.85 role=Generative troops=10000
-link CroatianForce -> HungarianArmy : reinforces weight=0.75 role=Generative troops=5000
-link HungarianArmy -> Mohacs_Field : reinforced weight=1.0 role=Generative troops=41000
+link TransylvanianArmy -> HungarianArmy : reinforces weight=auto role=Generative troops=10000
+link CroatianForce -> HungarianArmy : reinforces weight=auto role=Generative troops=5000
+link HungarianArmy -> Mohacs_Field : reinforced weight=auto role=Generative troops=41000
 
 # Now the army gives battle at full strength; the law is satisfied.
-link HungarianArmy -> Mohacs_Field : gives_battle weight=1.0 role=Generative date=1526-09-01
+link HungarianArmy -> Mohacs_Field : gives_battle weight=auto role=Generative date=1526-09-01
 
 # A supported line changes the afternoon.
-link HungarianCavalry -> OttomanArmy : charges weight=0.9 role=Generative
-link HungarianArmy -> OttomanArmy : holds weight=0.9 role=Inhibitory
-link HungarianArmy -> OttomanArtillery : overruns weight=0.7 role=Generative
-link Louis_II -> Kingdom_of_Hungary : holds weight=1.0 role=Generative
+link HungarianCavalry -> OttomanArmy : charges weight=auto role=Generative
+link HungarianArmy -> OttomanArmy : holds weight=auto role=Inhibitory
+link HungarianArmy -> OttomanArtillery : overruns weight=auto role=Generative
+link Louis_II -> Kingdom_of_Hungary : holds weight=auto role=Generative
 
 evolve 2
 inspect object HungarianArmy

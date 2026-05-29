@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <limits>
 
+#include "pv/kernel/canonical_codec.hpp"
 #include "pv/measure/risk_lattice.hpp"
 #include "pv/measure/risk_projection.hpp"
 
@@ -75,4 +76,27 @@ TEST_CASE("component projection policy changes projection hash without changing 
     REQUIRE(left.projection_policy_hash != right.projection_policy_hash);
     REQUIRE(left.projected_score != right.projected_score);
     REQUIRE(left.projection_hash != right.projection_hash);
+}
+
+TEST_CASE("calibrated projection is monotone over the risk lattice") {
+    ProjectionPolicy policy;
+    policy.terms.push_back(ProjectionTerm{
+        "structural",
+        "forward_cone_mass",
+        1,
+        1,
+        "robust_z",
+        10,
+        2,
+        12,
+        20,
+        30
+    });
+
+    const RiskLatticeElement low{{RiskCoordinate{"structural", "forward_cone_mass", 12}}};
+    const RiskLatticeElement high{{RiskCoordinate{"structural", "forward_cone_mass", 30}}};
+
+    REQUIRE(less_equal(low, high));
+    REQUIRE(project(low, policy) <= project(high, policy));
+    REQUIRE(projection_policy_hash(policy) == projection_policy_hash(decode_projection_policy_bytes(canonical_encode(policy))));
 }

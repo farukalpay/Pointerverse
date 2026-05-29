@@ -2,7 +2,10 @@
 #include "pv/intervention/operator_family.hpp"
 
 #include <algorithm>
+#include <sstream>
 #include <utility>
+
+#include <fmt/format.h>
 
 #include "pv/breakpoint/repair_candidate.hpp"
 #include "pv/hash/hasher.hpp"
@@ -38,6 +41,27 @@ OperatorFamily canonicalize_operator_family(OperatorFamily family) {
 
 InterventionOperator make_operator(const OperatorFamily& family, ScaleValue scale) {
     auto candidate = family.seed;
+    if (candidate.action == RepairAction::ConstrainTriggeringRelation
+        && candidate.replacement_weight.has_value()) {
+        candidate.replacement_weight = std::clamp(
+            *candidate.replacement_weight * scale.to_double(),
+            0.0,
+            1.0);
+        std::ostringstream script;
+        script << "# pointerverse repair candidate v1\n";
+        script << fmt::format("# breakpoint {}\n", candidate.breakpoint_id);
+        for (const auto& evidence : candidate.evidence_ids) {
+            script << fmt::format("# evidence {}\n", evidence);
+        }
+        script << fmt::format(
+            "constrain {} -> {} : {} weight={:.12g} pointer=P{}\n",
+            candidate.trigger.from,
+            candidate.trigger.to,
+            candidate.trigger.relation,
+            *candidate.replacement_weight,
+            candidate.pointer.value);
+        candidate.script = script.str();
+    }
     return intervention_operator_from_repair(candidate, scale);
 }
 

@@ -1,0 +1,10 @@
+[Unit]
+Description=Update Pointerverse from GitHub
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/update-pointerverse
+StandardOutput=journal
+StandardError=journal

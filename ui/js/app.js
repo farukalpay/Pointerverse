@@ -6,7 +6,7 @@
   const $ = (id) => document.getElementById(id);
   const state = { worldId: null, world: null, branch: null, file: null, model: null, lawResults: [] };
 
-  let editor, els;
+  let editor, els, bundledBranches;
 
   document.addEventListener('DOMContentLoaded', boot);
 
@@ -17,6 +17,8 @@
     };
     editor = PVEditor.init({ textarea: els.editor, hlCode: els.hlCode, hl: els.hl, gutter: els.gutter }, onEdit);
     PVGraph.init($('graphSvg'), $('graphCanvas'), { onSelectNode, onSelectEdge });
+    bundledBranches = new Map(PV.WORLDS.map((w) => [w.id, w.branches.map((b) => Object.assign({}, b))]));
+    PVStorage.hydrate(PV.WORLDS);
     injectMobileNote();
     wireChrome();
     wireActions();
@@ -27,7 +29,10 @@
     setMode(PVApi.isLive() ? 'live' : 'static');
 
     renderAgentPane();
-    loadWorld('mohacs', 'historical');
+    const saved = PVStorage.session();
+    const initialWorld = PV.byId(saved.worldId) ? saved.worldId : 'mohacs';
+    loadWorld(initialWorld, saved.branch || (PV.byId(initialWorld) || {}).defaultBranch || 'historical');
+    if (saved.file && state.world && state.world.files[saved.file] != null) openFile(saved.file, true);
     bootBanner();
   }
 
@@ -55,7 +60,7 @@
 
   function openFile(file, doRefresh) {
     state.file = file;
-    editor.setValue(state.world.files[file] || '');
+    editor.setValue(PVStorage.fileValue(state.worldId, file, state.world.files[file] || ''));
     // map file -> branch when one matches
     const br = state.world.branches.find((b) => b.file === file && b.name === state.branch)
       || state.world.branches.find((b) => b.file === file);
@@ -63,10 +68,19 @@
     $('crumbFile').textContent = file;
     showEditor();
     renderTree();
+    saveSession();
     if (doRefresh !== false) refresh();
   }
 
-  function onEdit() { refresh(); }
+  function onEdit() {
+    PVStorage.saveFile(state.worldId, state.file, editor.getValue(), state.world.files[state.file] || '');
+    refresh();
+  }
+
+  function saveSession() {
+    if (!state.worldId || !state.branch || !state.file) return;
+    PVStorage.saveSession({ worldId: state.worldId, branch: state.branch, file: state.file });
+  }
 
   function refresh() {
     const w = state.world;
@@ -120,6 +134,7 @@
     if (!br) return;
     state.branch = name;
     openFile(br.file);
+    saveSession();
     toast(`Checked out ${name}`, `${br.commit} - epoch ${br.epoch}`, br.status === 'fail' ? 'warn' : 'ok');
   }
 
@@ -215,7 +230,7 @@
         <dt>commit</dt><dd class="hash">${info.commit}</dd>
         <dt>branch</dt><dd>${info.branch}</dd>
         ${link.role ? `<dt>role</dt><dd>${link.role}</dd>` : ''}
-        ${link.weight != null ? `<dt>weight</dt><dd>${link.weight}</dd>` : ''}
+        ${link.attrs && link.attrs.weight ? `<dt>weight</dt><dd>${esc(link.attrs.weight)}</dd>` : (link.weight != null ? `<dt>weight</dt><dd>${link.weight}</dd>` : '')}
       </dl>
       <div class="why-from-title">previous related facts</div>
       ${info.related.length ? info.related.map((r) => `<div class="why-fact">${r.from} <span class="wf-rel">${r.rel}</span> ${r.to}</div>`).join('')
@@ -330,6 +345,8 @@
       const file = state.file;
       w.branches.push({ name, file, status: base ? base.status : 'ok', epoch: base ? base.epoch : 0, commit: PVParse.shortHash(name + Date.now()), snapshot: PVParse.shortHash(name), parent: baseName });
       state.branch = name;
+      PVStorage.saveBranches(w.id, w.branches, bundledBranches.get(w.id) || []);
+      saveSession();
       renderTree();
       updateStatus(); updateBreadcrumb();
       toast(`Forked ${baseName} -> ${name}`, `at ${base ? base.commit : 'HEAD'} - edit and Run to diverge`, 'ok');

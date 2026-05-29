@@ -86,9 +86,10 @@ const PVParse = (() => {
         objects.set(m[1], { name: m[1], type: m[2], attrs: parseAttrs(m[3]) });
       } else if ((m = line.match(/^(?:link|pointer)\s+([A-Za-z_]\w*)\s*->\s*([A-Za-z_]\w*)\s*:\s*([A-Za-z_]\w*)\s*(.*)$/))) {
         const attrs = parseAttrs(m[4]);
+        const parsedWeight = attrs.weight !== undefined && attrs.weight !== 'auto' ? parseFloat(attrs.weight) : null;
         links.push({
           from: m[1], to: m[2], rel: m[3], attrs,
-          weight: attrs.weight !== undefined ? parseFloat(attrs.weight) : null,
+          weight: Number.isFinite(parsedWeight) ? parsedWeight : null,
           role: attrs.role || null, line: idx,
         });
       } else if (/^(evolve|inspect|law|domain|world|rule|derive|morphism|checkout)\b/.test(line)) {
@@ -118,6 +119,8 @@ const PVParse = (() => {
           if (lk.weight !== null) {
             triggered = true;
             if (lk.weight < 0 || lk.weight > 1) violations.push({ line: lk.line, linkIndex: i, reason: `${lk.from} -> ${lk.to} : ${lk.rel} weight ${lk.weight} out of [0,1]` });
+          } else if (lk.attrs.weight === 'auto') {
+            triggered = true;
           }
         });
       } else if (law.requireRel === '__none__') {

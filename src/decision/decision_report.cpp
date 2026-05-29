@@ -19,7 +19,7 @@ std::string render_decision_report_text(const DecisionReport& report) {
     output << "High priority:\n";
     std::size_t index = 1;
     for (const auto& recommendation : report.recommendations) {
-        if (recommendation.priority != "high") {
+        if (recommendation.priority != "high" && recommendation.priority != "critical") {
             continue;
         }
         output << fmt::format("{}. {}\n", index++, recommendation.reason);

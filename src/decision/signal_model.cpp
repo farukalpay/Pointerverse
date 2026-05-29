@@ -4,6 +4,7 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <cmath>
 
 namespace pv {
 namespace {
@@ -12,8 +13,28 @@ bool has_evidence(const Signal& signal) {
     return !signal.evidence_event_ids.empty();
 }
 
-std::string priority_for(double score, double threshold) {
-    return score >= threshold * 2.0 ? "high" : "medium";
+double quantile(std::vector<double> values, double percentile) {
+    if (values.empty()) {
+        return 0.0;
+    }
+    std::ranges::sort(values);
+    if (values.size() == 1) {
+        return values.front();
+    }
+    const auto clamped = std::clamp(percentile, 0.0, 1.0);
+    const auto index = static_cast<std::size_t>(
+        std::ceil(clamped * static_cast<double>(values.size() - 1U)));
+    return values[std::min(index, values.size() - 1U)];
+}
+
+std::string priority_for(const Signal& signal) {
+    if (signal.score >= signal.critical_threshold) {
+        return "critical";
+    }
+    if (signal.score >= signal.high_threshold) {
+        return "high";
+    }
+    return "medium";
 }
 
 }  // namespace
@@ -24,9 +45,25 @@ std::vector<Signal> SignalModel::signals(
     const std::vector<EntityProjectionEntry>& entities,
     const std::vector<RelationProjectionEntry>& relations) const {
     std::vector<Signal> out;
+    std::vector<double> entity_scores;
+    std::vector<double> relation_scores;
+    entity_scores.reserve(entities.size());
+    relation_scores.reserve(relations.size());
+    for (const auto& entity : entities) {
+        entity_scores.push_back(static_cast<double>(entity.appearances));
+    }
+    for (const auto& relation : relations) {
+        relation_scores.push_back(static_cast<double>(relation.occurrences));
+    }
+    const auto entity_medium = quantile(entity_scores, options_.thresholds.medium_quantile);
+    const auto entity_high = quantile(entity_scores, options_.thresholds.high_quantile);
+    const auto entity_critical = quantile(entity_scores, options_.thresholds.critical_quantile);
+    const auto relation_medium = quantile(relation_scores, options_.thresholds.medium_quantile);
+    const auto relation_high = quantile(relation_scores, options_.thresholds.high_quantile);
+    const auto relation_critical = quantile(relation_scores, options_.thresholds.critical_quantile);
 
     for (const auto& entity : entities) {
-        if (entity.appearances < options_.high_activity_entity_threshold
+        if (static_cast<double>(entity.appearances) < entity_medium
             || entity.evidence_event_ids.empty()) {
             continue;
         }
@@ -35,6 +72,9 @@ std::vector<Signal> SignalModel::signals(
             entity.entity,
             "high_activity_entity",
             static_cast<double>(entity.appearances),
+            entity_medium,
+            entity_high,
+            entity_critical,
             fmt::format(
                 "{} appears in {} graph events",
                 entity.entity,
@@ -44,7 +84,7 @@ std::vector<Signal> SignalModel::signals(
     }
 
     for (const auto& relation : relations) {
-        if (relation.occurrences < options_.repeated_relation_threshold
+        if (static_cast<double>(relation.occurrences) < relation_medium
             || relation.evidence_event_ids.empty()) {
             continue;
         }
@@ -53,6 +93,9 @@ std::vector<Signal> SignalModel::signals(
             relation.relation,
             "repeated_relation",
             static_cast<double>(relation.occurrences),
+            relation_medium,
+            relation_high,
+            relation_critical,
             fmt::format(
                 "{} repeats {} times",
                 relation.relation,
@@ -76,12 +119,9 @@ std::vector<Recommendation> SignalModel::recommendations(const std::vector<Signa
         if (!has_evidence(signal)) {
             continue;
         }
-        const auto threshold = signal.kind == "repeated_relation"
-            ? static_cast<double>(options_.repeated_relation_threshold)
-            : static_cast<double>(options_.high_activity_entity_threshold);
         out.push_back(Recommendation{
             "recommendation/" + signal.id,
-            priority_for(signal.score, threshold),
+            priority_for(signal),
             signal.kind == "repeated_relation" ? "review repeated relation cluster" : "inspect high-activity entity",
             signal.explanation,
             {signal}

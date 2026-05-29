@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -37,10 +38,41 @@ struct CalibrationBaselineRef {
     Hash256 baseline_object;
 };
 
+struct ComponentStats {
+    std::string namespace_id;
+    std::string component_id;
+    std::uint64_t median{0};
+    std::uint64_t mad{1};
+    std::uint64_t q80{0};
+    std::uint64_t q95{0};
+    std::uint64_t q99{0};
+    std::uint64_t max_seen{0};
+
+    friend bool operator==(const ComponentStats&, const ComponentStats&) = default;
+};
+
+struct CalibrationProfile {
+    Hash256 baseline_hash;
+    std::vector<ComponentStats> components;
+    Hash256 profile_hash;
+
+    friend bool operator==(const CalibrationProfile&, const CalibrationProfile&) = default;
+};
+
 [[nodiscard]] Hash256 calibration_baseline_hash(const CalibrationBaseline& baseline);
 void encode(CanonicalWriter& writer, const CalibrationBaseline& baseline);
 [[nodiscard]] CalibrationBaseline decode_calibration_baseline(CanonicalReader& reader);
 [[nodiscard]] CalibrationBaseline decode_calibration_baseline_bytes(std::span<const std::byte> bytes);
+[[nodiscard]] Hash256 calibration_profile_hash(const CalibrationProfile& profile);
+void encode(CanonicalWriter& writer, const CalibrationProfile& profile);
+[[nodiscard]] CalibrationProfile decode_calibration_profile(CanonicalReader& reader);
+[[nodiscard]] CalibrationProfile decode_calibration_profile_bytes(std::span<const std::byte> bytes);
+[[nodiscard]] CalibrationProfile calibration_profile_from_baseline(
+    const Repository& repository,
+    const CalibrationBaseline& baseline);
+[[nodiscard]] ProjectionPolicy calibrated_projection_policy(
+    const CalibrationProfile& profile,
+    std::string calibration_mode = "robust_z");
 
 class CalibrationStore {
 public:

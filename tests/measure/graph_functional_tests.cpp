@@ -83,6 +83,17 @@ TEST_CASE("same graph with different object insertion order gives same functiona
         == functional_result_hash("propagated_mass", right_result));
 }
 
+TEST_CASE("default propagation attenuation is derived from graph out-degree") {
+    WeightedGraphView graph;
+    graph.objects = {object(1), object(2), object(3)};
+    graph.arcs = {arc(1, 2, 1), arc(1, 3, 2)};
+
+    const std::vector<ObjectId> seeds{object(1)};
+    const auto result = PropagatedMass{}.evaluate(graph, seeds);
+
+    REQUIRE(result.explanation.find("attenuation: 9000000/20000000") != std::string::npos);
+}
+
 TEST_CASE("functional result hash is stable after repository reopen") {
     const auto root = temp_repo_path("reopen");
     auto repo = Repository::init(root);

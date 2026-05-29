@@ -2,12 +2,17 @@
 #include "pv/measure/calibration.hpp"
 
 #include <algorithm>
+#include <map>
+#include <cmath>
 #include <stdexcept>
 #include <utility>
 
 #include "pv/hash/hasher.hpp"
 #include "pv/kernel/canonical_codec.hpp"
+#include "pv/measure/component_record.hpp"
+#include "pv/measure/measurement_record.hpp"
 #include "pv/measure/measurement_store.hpp"
+#include "pv/measure/risk_projection.hpp"
 #include "pv/storage/repository.hpp"
 
 namespace pv {
@@ -79,6 +84,78 @@ void sort_refs(std::vector<CalibrationBaselineRef>& refs) {
     refs.erase(std::ranges::unique(refs, {}, &CalibrationBaselineRef::name).begin(), refs.end());
 }
 
+bool stats_less(const ComponentStats& left, const ComponentStats& right) {
+    if (left.namespace_id != right.namespace_id) {
+        return left.namespace_id < right.namespace_id;
+    }
+    return left.component_id < right.component_id;
+}
+
+void sort_stats(std::vector<ComponentStats>& stats) {
+    std::ranges::sort(stats, stats_less);
+}
+
+std::uint64_t percentile(std::vector<std::uint64_t> values, double p) {
+    if (values.empty()) {
+        return 0;
+    }
+    std::ranges::sort(values);
+    if (values.size() == 1) {
+        return values.front();
+    }
+    const auto index = static_cast<std::size_t>(
+        std::ceil(std::clamp(p, 0.0, 1.0) * static_cast<double>(values.size() - 1U)));
+    return values[std::min(index, values.size() - 1U)];
+}
+
+ComponentStats stats_for(
+    std::string namespace_id,
+    std::string component_id,
+    const std::vector<std::uint64_t>& values) {
+    const auto median = percentile(values, 0.50);
+    std::vector<std::uint64_t> deviations;
+    deviations.reserve(values.size());
+    for (const auto value : values) {
+        deviations.push_back(value > median ? value - median : median - value);
+    }
+    auto sorted = values;
+    std::ranges::sort(sorted);
+    return ComponentStats{
+        std::move(namespace_id),
+        std::move(component_id),
+        median,
+        std::max<std::uint64_t>(1, percentile(deviations, 0.50)),
+        percentile(values, 0.80),
+        percentile(values, 0.95),
+        percentile(values, 0.99),
+        sorted.empty() ? 0 : sorted.back()
+    };
+}
+
+void write_stats(CanonicalWriter& writer, const ComponentStats& stats) {
+    writer.string(stats.namespace_id);
+    writer.string(stats.component_id);
+    writer.u64(stats.median);
+    writer.u64(stats.mad);
+    writer.u64(stats.q80);
+    writer.u64(stats.q95);
+    writer.u64(stats.q99);
+    writer.u64(stats.max_seen);
+}
+
+ComponentStats read_stats(CanonicalReader& reader) {
+    ComponentStats stats;
+    stats.namespace_id = reader.string();
+    stats.component_id = reader.string();
+    stats.median = reader.u64();
+    stats.mad = reader.u64();
+    stats.q80 = reader.u64();
+    stats.q95 = reader.u64();
+    stats.q99 = reader.u64();
+    stats.max_seen = reader.u64();
+    return stats;
+}
+
 }  // namespace
 
 void encode(CanonicalWriter& writer, const CalibrationBaseline& baseline) {
@@ -120,6 +197,102 @@ CalibrationBaseline decode_calibration_baseline_bytes(std::span<const std::byte>
 
 Hash256 calibration_baseline_hash(const CalibrationBaseline& baseline) {
     return sha256(canonical_encode(baseline));
+}
+
+void encode(CanonicalWriter& writer, const CalibrationProfile& profile) {
+    auto sorted = profile.components;
+    sort_stats(sorted);
+    writer.string("CalibrationProfile:v1");
+    writer.hash(profile.baseline_hash);
+    writer.u64(sorted.size());
+    for (const auto& stats : sorted) {
+        write_stats(writer, stats);
+    }
+}
+
+CalibrationProfile decode_calibration_profile(CanonicalReader& reader) {
+    reader.expect_tag("CalibrationProfile:v1");
+    CalibrationProfile profile;
+    profile.baseline_hash = reader.hash();
+    const auto size = reader.u64();
+    profile.components.reserve(static_cast<std::size_t>(size));
+    for (std::uint64_t index = 0; index < size; ++index) {
+        profile.components.push_back(read_stats(reader));
+    }
+    sort_stats(profile.components);
+    profile.profile_hash = calibration_profile_hash(profile);
+    return profile;
+}
+
+CalibrationProfile decode_calibration_profile_bytes(std::span<const std::byte> bytes) {
+    CanonicalReader reader{bytes};
+    auto profile = decode_calibration_profile(reader);
+    reader.expect_end();
+    profile.profile_hash = sha256(bytes);
+    return profile;
+}
+
+Hash256 calibration_profile_hash(const CalibrationProfile& profile) {
+    return sha256(canonical_encode(profile));
+}
+
+CalibrationProfile calibration_profile_from_baseline(
+    const Repository& repository,
+    const CalibrationBaseline& baseline) {
+    std::map<std::pair<std::string, std::string>, std::vector<std::uint64_t>> values;
+    for (const auto& entry : baseline.sample) {
+        try {
+            const auto record = decode_measurement_record_bytes(repository.objects().get_bytes(entry.measurement_object));
+            if (record.legacy || record.component_objects.empty()) {
+                for (const auto& coordinate : risk_lattice_from_vector(entry.risk).coordinates) {
+                    values[{coordinate.namespace_id, coordinate.component_id}].push_back(coordinate.value);
+                }
+                continue;
+            }
+            for (const auto object : record.component_objects) {
+                const auto component = decode_measurement_component_record_bytes(repository.objects().get_bytes(object));
+                values[{component.namespace_id, component.functional_id}].push_back(component.value);
+            }
+        } catch (const std::exception&) {
+            for (const auto& coordinate : risk_lattice_from_vector(entry.risk).coordinates) {
+                values[{coordinate.namespace_id, coordinate.component_id}].push_back(coordinate.value);
+            }
+        }
+    }
+
+    CalibrationProfile profile;
+    profile.baseline_hash = baseline.baseline_hash;
+    profile.components.reserve(values.size());
+    for (const auto& [key, sample] : values) {
+        profile.components.push_back(stats_for(key.first, key.second, sample));
+    }
+    sort_stats(profile.components);
+    profile.profile_hash = calibration_profile_hash(profile);
+    return profile;
+}
+
+ProjectionPolicy calibrated_projection_policy(
+    const CalibrationProfile& profile,
+    std::string calibration_mode) {
+    ProjectionPolicy policy;
+    policy.id = "pointerverse.calibrated_monotone_projection";
+    policy.version = 1;
+    policy.terms.reserve(profile.components.size());
+    for (const auto& stats : profile.components) {
+        ProjectionTerm term;
+        term.namespace_id = stats.namespace_id;
+        term.component_id = stats.component_id;
+        term.weight_num = 1;
+        term.weight_den = 1;
+        term.calibration_mode = calibration_mode;
+        term.median = stats.median;
+        term.mad = stats.mad;
+        term.q80 = stats.q80;
+        term.q95 = stats.q95;
+        term.q99 = stats.q99;
+        policy.terms.push_back(std::move(term));
+    }
+    return policy;
 }
 
 CalibrationStore::CalibrationStore(Repository& repository)

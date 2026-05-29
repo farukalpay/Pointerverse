@@ -68,6 +68,51 @@ double double_option(
     return fallback;
 }
 
+bool pointer_active_at_for_weight(const PointerSnapshot& pointer, Epoch epoch) noexcept {
+    return pointer.born_at <= epoch && (!pointer.expires_at.has_value() || epoch < *pointer.expires_at);
+}
+
+double derived_link_weight(
+    const WorldSnapshot& snapshot,
+    std::string_view relation,
+    CausalRole role) {
+    std::size_t active = 0;
+    std::size_t same_relation = 0;
+    std::size_t same_role = 0;
+    for (const auto& pointer : snapshot.pointers) {
+        if (!pointer_active_at_for_weight(pointer, snapshot.epoch)) {
+            continue;
+        }
+        active += 1;
+        if (snapshot.relation_name(pointer.relation) == relation) {
+            same_relation += 1;
+        }
+        if (pointer.causal_role == role) {
+            same_role += 1;
+        }
+    }
+
+    const auto evidence = static_cast<double>(same_relation + same_role + 1U);
+    const auto trials = static_cast<double>(active + same_relation + same_role + 2U);
+    return std::clamp((evidence + 1.0) / (trials + 2.0), 0.05, 0.95);
+}
+
+double link_weight_option(
+    const WorldSnapshot& snapshot,
+    const std::unordered_map<std::string, std::string>& options,
+    std::string_view relation,
+    CausalRole role,
+    double fallback) {
+    const auto iter = options.find("weight");
+    if (iter == options.end()) {
+        return fallback;
+    }
+    if (iter->second == "auto") {
+        return derived_link_weight(snapshot, relation, role);
+    }
+    return std::stod(iter->second);
+}
+
 std::string string_option(
     const std::unordered_map<std::string, std::string>& options,
     std::string_view name,
@@ -584,15 +629,17 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             std::string relation;
             stream >> from >> arrow >> to >> colon >> relation;
             if (from.empty() || arrow != "->" || to.empty() || colon != ":" || relation.empty()) {
-                throw std::invalid_argument("usage: link FROM -> TO : RELATION [weight=1.0] [role=Structural] [key=value ...]");
+                throw std::invalid_argument("usage: link FROM -> TO : RELATION [weight=1.0|auto] [role=Structural] [key=value ...]");
             }
             const auto options = parse_options(stream);
             const auto role = causal_role_from_string(string_option(options, "role", string_option(options, "causal_role", "Structural")));
             const auto attributes = attributes_from_options(options, {"weight", "role", "causal_role"});
+            const auto snapshot = world.snapshot();
+            const auto weight = link_weight_option(snapshot, options, relation, role, 1.0);
 
             auto tx = transaction_from_program(
-                world.snapshot(),
-                ScriptCompiler{}.compile_link(world.snapshot(), from, to, relation, double_option(options, "weight", 1.0), role, attributes),
+                snapshot,
+                ScriptCompiler{}.compile_link(snapshot, from, to, relation, weight, role, attributes),
                 TransactionOrigin::Script,
                 fmt::format("link {} -> {} : {}", from, to, relation));
             const auto result = sink_->commit(std::move(tx));

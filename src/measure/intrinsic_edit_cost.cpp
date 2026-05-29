@@ -2,6 +2,7 @@
 #include "pv/measure/intrinsic_edit_cost.hpp"
 
 #include <cctype>
+#include <cmath>
 #include <utility>
 
 namespace pv {
@@ -76,6 +77,29 @@ std::string canonical_repair_script(std::string_view script) {
 
 std::uint64_t canonical_edit_cost(std::string_view script) {
     return static_cast<std::uint64_t>(canonical_repair_script(script).size());
+}
+
+std::uint64_t baseline_mdl_edit_cost(
+    std::string_view script,
+    const BaselineMdlProfile& profile) {
+    const auto tokens = canonical_repair_tokens(script);
+    if (tokens.empty()) {
+        return 0;
+    }
+    if (profile.total_tokens == 0 || profile.token_counts.empty()) {
+        return canonical_edit_cost(script);
+    }
+
+    const auto vocab = static_cast<double>(profile.token_counts.size() + 1U);
+    const auto denominator = static_cast<double>(profile.total_tokens) + vocab;
+    double bits = 0.0;
+    for (const auto& token : tokens) {
+        const auto iter = profile.token_counts.find(token);
+        const auto count = iter == profile.token_counts.end() ? 0U : iter->second;
+        const auto probability = (static_cast<double>(count) + 1.0) / denominator;
+        bits += -std::log2(probability);
+    }
+    return static_cast<std::uint64_t>(std::ceil(bits));
 }
 
 CanonicalEditCost IntrinsicEditCost::measure(std::string_view script) const {

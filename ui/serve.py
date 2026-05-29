@@ -21,6 +21,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import urllib.parse
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -38,11 +39,17 @@ HEX = re.compile(r"\b[0-9a-f]{12}\b")
 
 
 class App:
-    def __init__(self, binary):
+    def __init__(self, binary, production=False):
         self.binary = binary
+        self.production = production
+        self.max_body = 512 * 1024 if production else 4 * 1024 * 1024
+        self.engine_slots = threading.BoundedSemaphore(2 if production else 8)
+        self.pack_lock = threading.Lock()
 
     # ---- subprocess helper -------------------------------------------------
     def engine(self, args, timeout=45):
+        if not self.engine_slots.acquire(timeout=5):
+            return "engine busy"
         try:
             p = subprocess.run(
                 [self.binary, *args],
@@ -53,6 +60,8 @@ class App:
             return "engine timed out"
         except FileNotFoundError:
             return f"binary not found: {self.binary}"
+        finally:
+            self.engine_slots.release()
 
     def binary_ok(self):
         return os.path.isfile(self.binary) and os.access(self.binary, os.X_OK)
@@ -64,7 +73,9 @@ class App:
         store = os.path.join(REPO_ROOT, "examples", "packs", pack, ".pack-store")
         if not os.path.isdir(store):
             # build it once from the pack
-            self.engine(["pack", "run", pack], timeout=120)
+            with self.pack_lock:
+                if not os.path.isdir(store):
+                    self.engine(["pack", "run", pack], timeout=120)
         return store if os.path.isdir(store) else None
 
     def repo(self, world, *args):
@@ -73,22 +84,40 @@ class App:
             return ""
         return self.engine(["repo", "--store", store, *args])
 
+    def pack_entry(self, world):
+        pack = PACKS.get(world)
+        if not pack:
+            return None
+        path = os.path.join(REPO_ROOT, "examples", "packs", pack, "world.pv")
+        return path if os.path.isfile(path) else None
+
     # ---- endpoints ---------------------------------------------------------
     def health(self):
-        return {"ok": self.binary_ok(), "version": "pointerverse engine"}
+        return {"ok": self.binary_ok(), "version": "pointerverse engine", "production": self.production}
 
     def run(self, body):
         src = body.get("src", "")
-        with tempfile.NamedTemporaryFile("w", suffix=".pv", delete=False, dir=tempfile.gettempdir()) as f:
-            f.write(src)
-            path = f.name
-        try:
-            out = self.engine(["world", "run", path])
-        finally:
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
+        world = body.get("world", "")
+        branch = body.get("branch", "main") or "main"
+        if branch and not SAFE.match(branch):
+            branch = "scratch"
+        entry = self.pack_entry(world)
+        with tempfile.TemporaryDirectory(prefix="pv-run-") as tmp:
+            path = os.path.join(tmp, "posted.pv")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(src)
+            if entry:
+                store = os.path.join(tmp, "store")
+                parts = [self.engine(["repo", "init", store])]
+                if branch == "main":
+                    parts.append(self.engine(["repo", "--store", store, "run", path, "--branch", "main"]))
+                else:
+                    parts.append(self.engine(["repo", "--store", store, "run", entry, "--branch", "main"]))
+                    parts.append(self.engine(["repo", "--store", store, "branch", "fork", "main", branch]))
+                    parts.append(self.engine(["repo", "--store", store, "run", path, "--branch", branch]))
+                out = "".join(parts)
+            else:
+                out = self.engine(["world", "run", path])
         return {"output": out}
 
     def history(self, q):
@@ -213,6 +242,8 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/run":
             length = int(self.headers.get("Content-Length", 0))
+            if length > self.app.max_body:
+                return self._send({"error": "request body too large"}, 413)
             try:
                 body = json.loads(self.rfile.read(length) or b"{}")
                 return self._send(self.app.run(body))
@@ -227,9 +258,11 @@ def main():
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--bin", default=os.path.join(REPO_ROOT, "build", "pointerverse"),
                     help="path to the pointerverse binary")
+    ap.add_argument("--production", action="store_true",
+                    help="enable request limits and low concurrency for public hosting")
     args = ap.parse_args()
 
-    Handler.app = App(os.path.abspath(args.bin))
+    Handler.app = App(os.path.abspath(args.bin), production=args.production)
     handler = partial(Handler, directory=UI_DIR)
     httpd = ThreadingHTTPServer((args.host, args.port), handler)
 

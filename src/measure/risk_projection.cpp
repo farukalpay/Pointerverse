@@ -2,6 +2,7 @@
 #include "pv/measure/risk_projection.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -57,7 +58,25 @@ bool term_less(const ProjectionTerm& left, const ProjectionTerm& right) {
     if (left.weight_num != right.weight_num) {
         return left.weight_num < right.weight_num;
     }
-    return left.weight_den < right.weight_den;
+    if (left.weight_den != right.weight_den) {
+        return left.weight_den < right.weight_den;
+    }
+    if (left.calibration_mode != right.calibration_mode) {
+        return left.calibration_mode < right.calibration_mode;
+    }
+    if (left.median != right.median) {
+        return left.median < right.median;
+    }
+    if (left.mad != right.mad) {
+        return left.mad < right.mad;
+    }
+    if (left.q80 != right.q80) {
+        return left.q80 < right.q80;
+    }
+    if (left.q95 != right.q95) {
+        return left.q95 < right.q95;
+    }
+    return left.q99 < right.q99;
 }
 
 void sort_terms(std::vector<ProjectionTerm>& terms) {
@@ -79,18 +98,53 @@ void sort_entries(std::vector<ProjectionIndexEntry>& entries) {
     });
 }
 
+std::uint64_t calibrated_coordinate(std::uint64_t coordinate, const ProjectionTerm& term) noexcept {
+    if (term.calibration_mode == "raw") {
+        return coordinate;
+    }
+    if (term.calibration_mode == "robust_z") {
+        if (coordinate <= term.median) {
+            return 0;
+        }
+        const auto scale = std::max<std::uint64_t>(1, term.mad);
+        const auto excess = static_cast<double>(coordinate - term.median) / static_cast<double>(scale);
+        const auto normalized = std::ceil(1000.0 * std::log1p(excess));
+        if (!std::isfinite(normalized) || normalized <= 0.0) {
+            return 0;
+        }
+        if (normalized >= static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
+            return std::numeric_limits<std::uint64_t>::max();
+        }
+        return static_cast<std::uint64_t>(normalized);
+    }
+    if (term.calibration_mode == "quantile") {
+        if (coordinate < term.q80) {
+            return 0;
+        }
+        if (coordinate < term.q95) {
+            return 1000;
+        }
+        if (coordinate < term.q99) {
+            return 2000;
+        }
+        return 3000;
+    }
+    return coordinate;
+}
+
 }  // namespace
 
 ProjectionPolicy default_projection_policy() {
     ProjectionPolicy policy;
+    policy.id = "pointerverse.raw_monotone_projection";
     policy.terms = {
         ProjectionTerm{"law", "total_magnitude", 1, 1},
         ProjectionTerm{"repair", "distance", 1, 1},
         ProjectionTerm{"structural", "forward_cone_mass", 1, 1},
-        ProjectionTerm{"structural", "reverse_dependency_mass", 1, 2},
-        ProjectionTerm{"structural", "cut_vertex_impact", 2, 1},
+        ProjectionTerm{"structural", "reverse_dependency_mass", 1, 1},
+        ProjectionTerm{"structural", "cut_vertex_impact", 1, 1},
         ProjectionTerm{"structural", "boundary_expansion", 1, 1},
-        ProjectionTerm{"structural", "path_multiplicity", 1, 4},
+        ProjectionTerm{"structural", "path_multiplicity", 1, 1},
         ProjectionTerm{"structural", "propagated_mass", 1, 1},
         ProjectionTerm{"surprise", "history_distance", 1, 1}
     };
@@ -127,7 +181,8 @@ std::uint64_t project(const RiskLatticeElement& value, ProjectionPolicy projecti
     std::uint64_t out = 0;
     for (const auto& term : projection.terms) {
         const auto coordinate = coordinate_value(value, term.namespace_id, term.component_id);
-        const auto projected = saturating_mul_div(coordinate, term.weight_num, term.weight_den);
+        const auto calibrated = calibrated_coordinate(coordinate, term);
+        const auto projected = saturating_mul_div(calibrated, term.weight_num, term.weight_den);
         out = saturating_add(out, projected);
     }
     return out;
@@ -136,7 +191,7 @@ std::uint64_t project(const RiskLatticeElement& value, ProjectionPolicy projecti
 void encode(CanonicalWriter& writer, const ProjectionPolicy& value) {
     auto policy = value;
     sort_terms(policy.terms);
-    writer.string("ProjectionPolicy:v2");
+    writer.string("ProjectionPolicy:v3");
     writer.string(policy.id);
     writer.u32(policy.version);
     writer.u64(policy.terms.size());
@@ -145,6 +200,12 @@ void encode(CanonicalWriter& writer, const ProjectionPolicy& value) {
         writer.string(term.component_id);
         writer.u64(term.weight_num);
         writer.u64(term.weight_den);
+        writer.string(term.calibration_mode);
+        writer.u64(term.median);
+        writer.u64(term.mad);
+        writer.u64(term.q80);
+        writer.u64(term.q95);
+        writer.u64(term.q99);
     }
 }
 
@@ -158,7 +219,7 @@ ProjectionPolicy decode_projection_policy(CanonicalReader& reader) {
         legacy.surprise_weight = reader.u64();
         return projection_policy_from_legacy(legacy);
     }
-    if (tag != "ProjectionPolicy:v2") {
+    if (tag != "ProjectionPolicy:v2" && tag != "ProjectionPolicy:v3") {
         throw std::runtime_error("canonical stream has unexpected type tag");
     }
     ProjectionPolicy policy;
@@ -172,6 +233,14 @@ ProjectionPolicy decode_projection_policy(CanonicalReader& reader) {
         term.component_id = reader.string();
         term.weight_num = reader.u64();
         term.weight_den = reader.u64();
+        if (tag == "ProjectionPolicy:v3") {
+            term.calibration_mode = reader.string();
+            term.median = reader.u64();
+            term.mad = reader.u64();
+            term.q80 = reader.u64();
+            term.q95 = reader.u64();
+            term.q99 = reader.u64();
+        }
         policy.terms.push_back(std::move(term));
     }
     sort_terms(policy.terms);

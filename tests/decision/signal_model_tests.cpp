@@ -39,3 +39,28 @@ TEST_CASE("signal model does not recommend without evidence ids") {
     entity.appearances = 10;
     REQUIRE(model.signals({entity}, {}).empty());
 }
+
+TEST_CASE("signal thresholds are quantile based") {
+    EntityProjectionEntry low;
+    low.entity = "A";
+    low.appearances = 1;
+    low.evidence_event_ids = {"external/e1"};
+
+    EntityProjectionEntry high;
+    high.entity = "B";
+    high.appearances = 10;
+    high.evidence_event_ids = {"external/e2"};
+
+    SignalModelOptions options;
+    options.thresholds.medium_quantile = 0.80;
+    options.thresholds.high_quantile = 0.95;
+    const SignalModel model{options};
+    const auto signals = model.signals({low, high}, {});
+    const auto recommendations = model.recommendations(signals);
+
+    REQUIRE(signals.size() == 1);
+    REQUIRE(signals.front().entity == "B");
+    REQUIRE(signals.front().medium_threshold == 10.0);
+    REQUIRE(recommendations.size() == 1);
+    REQUIRE((recommendations.front().priority == "high" || recommendations.front().priority == "critical"));
+}

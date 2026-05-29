@@ -24,3 +24,26 @@ TEST_CASE("canonical edit cost is deterministic for empty scripts") {
     REQUIRE(measured.tokens == 0);
     REQUIRE(measured.canonical_script.empty());
 }
+
+TEST_CASE("baseline MDL edit cost is deterministic and uses baseline counts") {
+    BaselineMdlProfile profile;
+    profile.token_counts = {
+        {"unlink", 10},
+        {"A", 6},
+        {"->", 10},
+        {"B", 6},
+        {":", 10},
+        {"causes", 4}
+    };
+    for (const auto& [_, count] : profile.token_counts) {
+        profile.total_tokens += count;
+    }
+
+    const auto script = "unlink A -> B : causes pointer=P2";
+    const auto first = baseline_mdl_edit_cost(script, profile);
+    const auto second = baseline_mdl_edit_cost(" unlink   A->B:causes pointer=P2 ", profile);
+
+    REQUIRE(first == second);
+    REQUIRE(first > 0);
+    REQUIRE(first < canonical_edit_cost(script));
+}

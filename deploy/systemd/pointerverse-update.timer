@@ -1,0 +1,11 @@
+[Unit]
+Description=Check GitHub for Pointerverse updates every 30 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+Persistent=true
+Unit=pointerverse-update.service
+
+[Install]
+WantedBy=timers.target

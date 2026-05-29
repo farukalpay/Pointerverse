@@ -118,6 +118,26 @@ TEST_CASE("CLI object and link attributes become typed graph state") {
     REQUIRE(morale_is_float);
 }
 
+TEST_CASE("CLI derives deterministic weights for auto-weighted links") {
+    World world;
+    cli::ScriptEngine engine{world};
+
+    std::ostringstream output;
+    std::istringstream input{
+        "world new derived\n"
+        "object A : Node\n"
+        "object B : Node\n"
+        "link A -> B : causes weight=auto role=Generative\n"
+        "law add bounded_weight\n"
+    };
+
+    REQUIRE(engine.run_stream(input, output));
+    const auto snapshot = world.snapshot();
+    REQUIRE(snapshot.pointers.size() == 1);
+    REQUIRE(snapshot.pointers.front().weight.value > 0.0);
+    REQUIRE(snapshot.pointers.front().weight.value <= 1.0);
+}
+
 TEST_CASE("CLI attribute-bearing scripts replay to the same world hash") {
     const auto script =
         "world new realm\n"

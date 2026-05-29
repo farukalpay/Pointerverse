@@ -42,11 +42,6 @@ committed - a compiler error for a world, not for code. The status bar reads
 </tr>
 </table>
 
-On a phone or a narrow split it collapses to a focused, readable single column -
-deliberately limited, never broken:
-
-<p align="center"><img src="docs/ui/08-mobile.png" alt="The workbench in a compact mobile layout" width="300"></p>
-
 ### Run the workbench locally
 
 The workbench is static files plus a small standard-library server - no build

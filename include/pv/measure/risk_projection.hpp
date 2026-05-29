@@ -23,6 +23,12 @@ struct ProjectionTerm {
     std::string component_id;
     std::uint64_t weight_num{1};
     std::uint64_t weight_den{1};
+    std::string calibration_mode{"raw"};
+    std::uint64_t median{0};
+    std::uint64_t mad{1};
+    std::uint64_t q80{0};
+    std::uint64_t q95{0};
+    std::uint64_t q99{0};
 
     friend bool operator==(const ProjectionTerm&, const ProjectionTerm&) = default;
 };

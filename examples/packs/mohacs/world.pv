@@ -39,27 +39,27 @@ object Kingdom_of_Hungary : Kingdom
 object Transylvania : Province
 
 # Ottoman command and order of battle
-link Suleiman_I -> OttomanArmy : commands weight=1.0 role=Generative
-link Ibrahim_Pasha -> OttomanArmy : leads weight=0.9 role=Generative
-link Gazi_Bali_Bey -> OttomanArmy : leads weight=0.7 role=Generative
-link Janissaries -> OttomanArmy : reinforces weight=0.85
-link OttomanArtillery -> OttomanArmy : reinforces weight=0.85
-link OttomanArmy -> Mohacs_Field : deploys weight=1.0
+link Suleiman_I -> OttomanArmy : commands weight=auto role=Generative
+link Ibrahim_Pasha -> OttomanArmy : leads weight=auto role=Generative
+link Gazi_Bali_Bey -> OttomanArmy : leads weight=auto role=Generative
+link Janissaries -> OttomanArmy : reinforces weight=auto
+link OttomanArtillery -> OttomanArmy : reinforces weight=auto
+link OttomanArmy -> Mohacs_Field : deploys weight=auto
 
 # Hungarian command and order of battle
-link Louis_II -> Kingdom_of_Hungary : rules weight=1.0 role=Generative
-link Louis_II -> HungarianArmy : commands weight=1.0 role=Generative
-link Pal_Tomori -> HungarianArmy : leads weight=0.9 role=Generative
-link Gyorgy_Szapolyai -> HungarianArmy : leads weight=0.7 role=Generative
-link HungarianCavalry -> HungarianArmy : reinforces weight=0.8
-link HungarianArtillery -> HungarianArmy : reinforces weight=0.6
-link HungarianArmy -> Mohacs_Field : deploys weight=1.0
+link Louis_II -> Kingdom_of_Hungary : rules weight=auto role=Generative
+link Louis_II -> HungarianArmy : commands weight=auto role=Generative
+link Pal_Tomori -> HungarianArmy : leads weight=auto role=Generative
+link Gyorgy_Szapolyai -> HungarianArmy : leads weight=auto role=Generative
+link HungarianCavalry -> HungarianArmy : reinforces weight=auto
+link HungarianArtillery -> HungarianArmy : reinforces weight=auto
+link HungarianArmy -> Mohacs_Field : deploys weight=auto
 
 # The relief armies on the road
-link Janos_Szapolyai -> TransylvanianArmy : commands weight=0.9 role=Generative
-link Christoph_Frankopan -> CroatianForce : commands weight=0.9 role=Generative
-link TransylvanianArmy -> Mohacs_Field : marches_to weight=0.6
-link CroatianForce -> Mohacs_Field : marches_to weight=0.5
+link Janos_Szapolyai -> TransylvanianArmy : commands weight=auto role=Generative
+link Christoph_Frankopan -> CroatianForce : commands weight=auto role=Generative
+link TransylvanianArmy -> Mohacs_Field : marches_to weight=auto
+link CroatianForce -> Mohacs_Field : marches_to weight=auto
 
 evolve 2
 inspect object HungarianArmy

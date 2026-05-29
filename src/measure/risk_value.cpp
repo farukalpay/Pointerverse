@@ -18,17 +18,6 @@ std::uint64_t saturating_add(std::uint64_t left, std::uint64_t right) noexcept {
     return left + right;
 }
 
-std::uint64_t saturating_mul(std::uint64_t left, std::uint64_t right) noexcept {
-    if (left == 0 || right == 0) {
-        return 0;
-    }
-    constexpr auto max = std::numeric_limits<std::uint64_t>::max();
-    if (left > max / right) {
-        return max;
-    }
-    return left * right;
-}
-
 bool coordinate_less(const RiskCoordinate& left, const RiskCoordinate& right) {
     if (left.namespace_id != right.namespace_id) {
         return left.namespace_id < right.namespace_id;
@@ -87,15 +76,17 @@ std::uint64_t coordinate_value(
 
 RiskVector risk_vector_from_lattice(const RiskLatticeElement& value) noexcept {
     RiskVector out;
-    out.structural = saturating_add(out.structural, coordinate_value(value, "structural", "forward_cone_mass"));
-    out.structural = saturating_add(out.structural, coordinate_value(value, "structural", "reverse_dependency_mass") / 2U);
-    out.structural = saturating_add(out.structural, saturating_mul(coordinate_value(value, "structural", "cut_vertex_impact"), 2U));
-    out.structural = saturating_add(out.structural, coordinate_value(value, "structural", "boundary_expansion"));
-    out.structural = saturating_add(out.structural, coordinate_value(value, "structural", "path_multiplicity") / 4U);
-    out.structural = saturating_add(out.structural, coordinate_value(value, "structural", "propagated_mass"));
-    out.law_distance = coordinate_value(value, "law", "total_magnitude");
-    out.repair_distance = coordinate_value(value, "repair", "distance");
-    out.surprise = coordinate_value(value, "surprise", "history_distance");
+    for (const auto& coordinate : value.coordinates) {
+        if (coordinate.namespace_id == "structural") {
+            out.structural = saturating_add(out.structural, coordinate.value);
+        } else if (coordinate.namespace_id == "law") {
+            out.law_distance = saturating_add(out.law_distance, coordinate.value);
+        } else if (coordinate.namespace_id == "repair") {
+            out.repair_distance = saturating_add(out.repair_distance, coordinate.value);
+        } else if (coordinate.namespace_id == "surprise") {
+            out.surprise = saturating_add(out.surprise, coordinate.value);
+        }
+    }
     return out;
 }
 

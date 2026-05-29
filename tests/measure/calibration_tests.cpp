@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "pv/core/world.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 #include "pv/measure/calibration.hpp"
 #include "pv/storage/repository.hpp"
 
@@ -74,5 +75,35 @@ TEST_CASE("calibration baseline persists by name") {
     REQUIRE(loaded.baseline_hash == created.baseline_hash);
     REQUIRE(loaded.sample.size() == 1);
     REQUIRE(loaded.spec_hash == measurement_spec_hash(default_measurement_spec()));
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("calibration profile derives robust component statistics") {
+    const auto root = temp_repo_path("profile");
+    auto repo = Repository::init(root);
+    (void)repo.create_branch("main", World{"seed"});
+    append_object(repo, "main", "A");
+    append_object(repo, "main", "B");
+    const auto commit = append_object(repo, "main", "C");
+
+    const auto baseline = CalibrationStore{repo}.create(
+        "main",
+        "main",
+        commit,
+        default_measurement_spec());
+    const auto first = calibration_profile_from_baseline(repo, baseline);
+    const auto second = calibration_profile_from_baseline(repo, baseline);
+
+    REQUIRE(first.profile_hash == second.profile_hash);
+    REQUIRE(first.baseline_hash == baseline.baseline_hash);
+    REQUIRE_FALSE(first.components.empty());
+    for (const auto& stats : first.components) {
+        REQUIRE(stats.mad >= 1);
+        REQUIRE(stats.q95 >= stats.q80);
+        REQUIRE(stats.q99 >= stats.q95);
+    }
+
+    const auto decoded = decode_calibration_profile_bytes(canonical_encode(first));
+    REQUIRE(decoded == first);
     std::filesystem::remove_all(root);
 }

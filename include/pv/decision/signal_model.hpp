@@ -2,18 +2,26 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 #include <vector>
 
+#include "pv/hash/canonical.hpp"
 #include "pv/decision/decision_report.hpp"
 #include "pv/projection/entity_projection.hpp"
 #include "pv/projection/relation_projection.hpp"
 
 namespace pv {
 
+struct SignalThresholdPolicy {
+    Hash256 baseline_hash;
+    double medium_quantile{0.80};
+    double high_quantile{0.95};
+    double critical_quantile{0.99};
+};
+
 struct SignalModelOptions {
-    std::size_t high_activity_entity_threshold{3};
-    std::size_t repeated_relation_threshold{2};
+    SignalThresholdPolicy thresholds;
 };
 
 class SignalModel {

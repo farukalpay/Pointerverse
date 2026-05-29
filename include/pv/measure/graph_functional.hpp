@@ -21,16 +21,16 @@ struct FunctionalResult {
 
 struct PropagationOptions {
     std::uint32_t max_steps{8};
-    std::uint64_t attenuation_num{1};
-    std::uint64_t attenuation_den{2};
+    std::uint64_t attenuation_num{0};
+    std::uint64_t attenuation_den{0};
 };
 
 struct PathMultiplicityOptions {
     std::uint32_t max_depth{6};
     std::uint64_t max_paths{100000};
     bool include_length_zero{false};
-    std::uint64_t attenuation_num{1};
-    std::uint64_t attenuation_den{2};
+    std::uint64_t attenuation_num{0};
+    std::uint64_t attenuation_den{0};
 };
 
 class GraphFunctional {

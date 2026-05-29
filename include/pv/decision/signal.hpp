@@ -11,6 +11,9 @@ struct Signal {
     std::string entity;
     std::string kind;
     double score{0.0};
+    double medium_threshold{0.0};
+    double high_threshold{0.0};
+    double critical_threshold{0.0};
     std::string explanation;
     std::vector<std::string> evidence_event_ids;
 

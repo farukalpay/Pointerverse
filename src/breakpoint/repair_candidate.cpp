@@ -71,8 +71,8 @@ const PointerSnapshot* pointer_from_breakpoint(const WorldSnapshot& snapshot, co
     return best;
 }
 
-double constrained_weight(const PointerSnapshot& pointer) {
-    return pointer.weight.value > 1.0 ? 1.0 : std::max(0.0, pointer.weight.value * 0.5);
+double dyadic_weight_ceiling(const PointerSnapshot& pointer) {
+    return std::clamp(pointer.weight.value, 0.0, 1.0);
 }
 
 std::string replacement_relation_name(std::string relation) {
@@ -104,7 +104,7 @@ std::string script_for(
             from,
             to,
             relation,
-            candidate.replacement_weight.value_or(constrained_weight(pointer)),
+            candidate.replacement_weight.value_or(dyadic_weight_ceiling(pointer)),
             pointer.id.value);
     } else if (candidate.action == RepairAction::DelayTriggeringRelation) {
         script << fmt::format(
@@ -181,7 +181,7 @@ std::vector<RepairCandidate> RepairCandidateBuilder::build_all(
         candidate.pointer = pointer->id;
         candidate.evidence_ids = breakpoint.evidence_ids;
         if (action == RepairAction::ConstrainTriggeringRelation) {
-            candidate.replacement_weight = constrained_weight(*pointer);
+            candidate.replacement_weight = dyadic_weight_ceiling(*pointer);
         }
         if (action == RepairAction::ReplaceTriggeringRelation) {
             candidate.replacement_relation = replacement_relation_name(relation);

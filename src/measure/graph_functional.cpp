@@ -6,6 +6,7 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <utility>
 #include <vector>
 
 #include "pv/hash/hasher.hpp"
@@ -67,6 +68,27 @@ std::uint64_t saturating_mul_div(std::uint64_t left, std::uint64_t right, std::u
 std::uint64_t attenuate(std::uint64_t mass, std::uint64_t weight, std::uint64_t numerator, std::uint64_t denominator) noexcept {
     const auto weighted = saturating_mul_div(mass, weight, weight_scale);
     return saturating_mul_div(weighted, numerator, denominator);
+}
+
+std::pair<std::uint64_t, std::uint64_t> spectral_safe_attenuation(
+    const IndexedGraph& indexed,
+    std::uint64_t configured_num,
+    std::uint64_t configured_den) noexcept {
+    if (configured_num != 0 && configured_den != 0) {
+        return {configured_num, configured_den};
+    }
+    std::uint64_t max_out_degree = 0;
+    for (const auto& arcs : indexed.outgoing) {
+        std::uint64_t out_degree = 0;
+        for (const auto arc_index : arcs) {
+            out_degree = saturating_add(out_degree, indexed.graph.arcs[arc_index].weight);
+        }
+        max_out_degree = std::max(max_out_degree, out_degree);
+    }
+    const auto rho = std::max(max_out_degree, weight_scale);
+    const auto max = std::numeric_limits<std::uint64_t>::max();
+    const auto denominator = rho > max / 10U ? max : rho * 10U;
+    return {9U * weight_scale, denominator};
 }
 
 IndexedGraph index_graph(const WeightedGraphView& input) {
@@ -255,6 +277,10 @@ FunctionalResult PathMultiplicity::evaluate(
     std::span<const ObjectId> seeds) const {
     const auto indexed = index_graph(graph);
     const auto roots = seed_indices(indexed, seeds);
+    const auto [attenuation_num, attenuation_den] = spectral_safe_attenuation(
+        indexed,
+        options_.attenuation_num,
+        options_.attenuation_den);
 
     FunctionalResult result;
     std::uint64_t path_count = 0;
@@ -286,7 +312,7 @@ FunctionalResult PathMultiplicity::evaluate(
             if (in_path[next]) {
                 continue;
             }
-            const auto next_mass = attenuate(mass, arc.weight, options_.attenuation_num, options_.attenuation_den);
+            const auto next_mass = attenuate(mass, arc.weight, attenuation_num, attenuation_den);
             witness_objects.insert(arc.from);
             witness_objects.insert(arc.to);
             witness_pointers.insert(arc.pointer.value);
@@ -320,7 +346,8 @@ FunctionalResult PathMultiplicity::evaluate(
     explanation << "simple paths: " << path_count
                 << "; weighted path mass: " << (weighted_path_mass / weight_scale)
                 << "; max depth reached: " << max_depth_reached
-                << "; truncated: " << (truncated ? "true" : "false");
+                << "; truncated: " << (truncated ? "true" : "false")
+                << "; attenuation: " << attenuation_num << "/" << attenuation_den;
     result.explanation = explanation.str();
     return result;
 }
@@ -375,6 +402,10 @@ FunctionalResult PropagatedMass::evaluate(
     std::span<const ObjectId> seeds) const {
     const auto indexed = index_graph(graph);
     const auto roots = seed_indices(indexed, seeds);
+    const auto [attenuation_num, attenuation_den] = spectral_safe_attenuation(
+        indexed,
+        options_.attenuation_num,
+        options_.attenuation_den);
     std::vector<std::uint64_t> current(indexed.graph.objects.size(), 0);
     std::vector<std::uint64_t> total(indexed.graph.objects.size(), 0);
     FunctionalResult result;
@@ -406,7 +437,7 @@ FunctionalResult PropagatedMass::evaluate(
             for (const auto arc_index : indexed.outgoing[index]) {
                 const auto& arc = indexed.graph.arcs[arc_index];
                 const auto to = indexed.object_index.at(arc.to);
-                const auto mass = attenuate(current[index], arc.weight, options_.attenuation_num, options_.attenuation_den);
+                const auto mass = attenuate(current[index], arc.weight, attenuation_num, attenuation_den);
                 next[to] = saturating_add(next[to], mass);
                 witness_pointers.insert(arc.pointer.value);
             }
@@ -429,7 +460,7 @@ FunctionalResult PropagatedMass::evaluate(
     std::ostringstream explanation;
     explanation << "integer propagated mass: " << result.value
                 << "; steps evaluated: " << steps
-                << "; attenuation: " << options_.attenuation_num << "/" << options_.attenuation_den;
+                << "; attenuation: " << attenuation_num << "/" << attenuation_den;
     result.explanation = explanation.str();
     return result;
 }

@@ -8,18 +8,18 @@ domain load examples/packs/mohacs/mohacs_rules.pvdomain
 law add no_battle_before_reinforcements
 
 # The relief armies arrive and join the royal army.
-link TransylvanianArmy -> HungarianArmy : reinforces weight=0.85 role=Generative troops=10000
-link CroatianForce -> HungarianArmy : reinforces weight=0.75 role=Generative troops=5000
-link HungarianArmy -> Mohacs_Field : reinforced weight=1.0 role=Generative troops=41000
+link TransylvanianArmy -> HungarianArmy : reinforces weight=auto role=Generative troops=10000
+link CroatianForce -> HungarianArmy : reinforces weight=auto role=Generative troops=5000
+link HungarianArmy -> Mohacs_Field : reinforced weight=auto role=Generative troops=41000
 
 # Now the army gives battle at full strength; the law is satisfied.
-link HungarianArmy -> Mohacs_Field : gives_battle weight=1.0 role=Generative date=1526-09-01
+link HungarianArmy -> Mohacs_Field : gives_battle weight=auto role=Generative date=1526-09-01
 
 # A supported line changes the afternoon.
-link HungarianCavalry -> OttomanArmy : charges weight=0.9 role=Generative
-link HungarianArmy -> OttomanArmy : holds weight=0.9 role=Inhibitory
-link HungarianArmy -> OttomanArtillery : overruns weight=0.7 role=Generative
-link Louis_II -> Kingdom_of_Hungary : holds weight=1.0 role=Generative
+link HungarianCavalry -> OttomanArmy : charges weight=auto role=Generative
+link HungarianArmy -> OttomanArmy : holds weight=auto role=Inhibitory
+link HungarianArmy -> OttomanArtillery : overruns weight=auto role=Generative
+link Louis_II -> Kingdom_of_Hungary : holds weight=auto role=Generative
 
 evolve 2
 inspect object HungarianArmy
