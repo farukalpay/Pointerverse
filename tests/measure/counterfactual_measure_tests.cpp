@@ -92,6 +92,44 @@ TEST_CASE("counterfactual replay determines breakpoint survival") {
     std::filesystem::remove_all(root);
 }
 
+TEST_CASE("counterfactual filtration records breakpoint persistence across intervention scales") {
+    const auto root = temp_counterfactual_repo();
+    auto repository = Repository::init(root);
+    const auto breakpoint = repeated_breakpoint(repository);
+
+    ProjectionStore store{repository};
+    const auto filtration = CounterfactualMeasure{}.filtration(repository, store, "main", breakpoint);
+
+    REQUIRE(filtration.samples.size() == 5);
+    REQUIRE(filtration.birth_scale.has_value());
+    REQUIRE(*filtration.birth_scale == 0.0);
+    REQUIRE(filtration.minimal_killing_scale.has_value());
+    REQUIRE(*filtration.minimal_killing_scale > 0.0);
+    REQUIRE(*filtration.minimal_killing_scale <= 1.0);
+    REQUIRE(filtration.death_scale == filtration.minimal_killing_scale);
+    REQUIRE_FALSE(filtration.surviving_regions.empty());
+    REQUIRE(filtration.surviving_regions.front().birth_scale == 0.0);
+    REQUIRE(filtration.persistence_length > 0.0);
+
+    const auto identity = std::ranges::find_if(filtration.samples, [](const CounterfactualFiltrationSample& sample) {
+        return sample.intervention == CounterfactualInterventionKind::Identity;
+    });
+    REQUIRE(identity != filtration.samples.end());
+    REQUIRE(identity->replayed);
+    REQUIRE_FALSE(identity->transformed);
+    REQUIRE(identity->survives);
+
+    const auto killed = std::ranges::find_if(filtration.samples, [](const CounterfactualFiltrationSample& sample) {
+        return !sample.survives;
+    });
+    REQUIRE(killed != filtration.samples.end());
+    REQUIRE(killed->scale == *filtration.minimal_killing_scale);
+
+    REQUIRE(std::ranges::find(filtration.carried_evidence_ids, "external/e2") != filtration.carried_evidence_ids.end());
+
+    std::filesystem::remove_all(root);
+}
+
 TEST_CASE("breakpoint survival requires same kind relation set and entity overlap") {
     Breakpoint original;
     original.kind = BreakpointKind::RepeatedRelation;

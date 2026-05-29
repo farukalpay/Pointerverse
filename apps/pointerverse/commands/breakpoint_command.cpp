@@ -56,7 +56,7 @@ public:
         explain_->add_option("breakpoint-id", explain_id_, "Breakpoint id")->required();
         explain_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
 
-        measure_ = breakpoint->add_subcommand("measure", "Measure a breakpoint by counterfactual intervention cost");
+        measure_ = breakpoint->add_subcommand("measure", "Measure a breakpoint by counterfactual filtration");
         measure_->add_option("branch", measure_branch_, "Branch name")->required();
         measure_->add_option("breakpoint-id", measure_id_, "Breakpoint id")->required();
         measure_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
@@ -67,7 +67,7 @@ public:
         repair_->add_option("--out", repair_out_, "Output .pv repair script");
         repair_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
 
-        repair_set_ = breakpoint->add_subcommand("repair-set", "Generate finite counterfactual repair candidates");
+        repair_set_ = breakpoint->add_subcommand("repair-set", "Generate scale-indexed counterfactual interventions");
         repair_set_->add_option("branch", repair_set_branch_, "Branch name")->required();
         repair_set_->add_option("breakpoint-id", repair_set_id_, "Breakpoint id")->required();
         repair_set_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");

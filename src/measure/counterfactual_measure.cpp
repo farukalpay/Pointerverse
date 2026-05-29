@@ -2,7 +2,9 @@
 #include "pv/measure/counterfactual_measure.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -97,6 +99,85 @@ bool same_relation_set(std::vector<std::string> left, std::vector<std::string> r
     std::ranges::sort(left);
     std::ranges::sort(right);
     return left == right;
+}
+
+std::vector<std::string> sorted_unique_strings(std::vector<std::string> values) {
+    std::ranges::sort(values);
+    values.erase(std::ranges::unique(values).begin(), values.end());
+    return values;
+}
+
+std::vector<double> scale_samples(CounterfactualFiltrationOptions options) {
+    std::vector<double> scales;
+    if (!options.scales.empty()) {
+        scales.reserve(options.scales.size() + 2);
+        for (const auto scale : options.scales) {
+            scales.push_back(std::clamp(scale, 0.0, 1.0));
+        }
+    } else {
+        const auto intervals = std::max<std::size_t>(1, options.intervals);
+        scales.reserve(intervals + 1);
+        for (std::size_t index = 0; index <= intervals; ++index) {
+            scales.push_back(static_cast<double>(index) / static_cast<double>(intervals));
+        }
+    }
+
+    scales.push_back(0.0);
+    scales.push_back(1.0);
+    std::ranges::sort(scales);
+    scales.erase(std::unique(scales.begin(), scales.end(), [](double left, double right) {
+        return std::abs(left - right) < 0.000000001;
+    }), scales.end());
+    return scales;
+}
+
+CounterfactualInterventionKind intervention_for_scale(double scale) noexcept {
+    if (scale <= 0.0) {
+        return CounterfactualInterventionKind::Identity;
+    }
+    constexpr std::array ordered{
+        CounterfactualInterventionKind::ConstrainTriggeringRelation,
+        CounterfactualInterventionKind::DelayTriggeringRelation,
+        CounterfactualInterventionKind::ReplaceTriggeringRelation,
+        CounterfactualInterventionKind::RemoveTriggeringRelation
+    };
+    const auto clamped = std::clamp(scale, 0.0, 1.0);
+    const auto bucket = std::min<std::size_t>(
+        ordered.size() - 1,
+        static_cast<std::size_t>(std::ceil(clamped * static_cast<double>(ordered.size()))) - 1U);
+    return ordered[bucket];
+}
+
+RepairAction repair_action(CounterfactualInterventionKind intervention) {
+    switch (intervention) {
+    case CounterfactualInterventionKind::ConstrainTriggeringRelation:
+        return RepairAction::ConstrainTriggeringRelation;
+    case CounterfactualInterventionKind::DelayTriggeringRelation:
+        return RepairAction::DelayTriggeringRelation;
+    case CounterfactualInterventionKind::ReplaceTriggeringRelation:
+        return RepairAction::ReplaceTriggeringRelation;
+    case CounterfactualInterventionKind::RemoveTriggeringRelation:
+        return RepairAction::RemoveTriggeringRelation;
+    case CounterfactualInterventionKind::Identity:
+        break;
+    }
+    throw std::invalid_argument("identity intervention has no repair action");
+}
+
+const RepairCandidate* candidate_for_intervention(
+    const std::vector<RepairCandidate>& candidates,
+    CounterfactualInterventionKind intervention) {
+    if (intervention == CounterfactualInterventionKind::Identity) {
+        return nullptr;
+    }
+    const auto action = repair_action(intervention);
+    const auto iter = std::ranges::find_if(candidates, [&](const RepairCandidate& candidate) {
+        return candidate.action == action;
+    });
+    if (iter == candidates.end()) {
+        return nullptr;
+    }
+    return &*iter;
 }
 
 bool overlapping_entities(const std::vector<std::string>& left, const std::vector<std::string>& right) {
@@ -334,7 +415,7 @@ void append_delayed(
 std::vector<Breakpoint> replay_breakpoints(
     const Repository& source,
     std::string_view branch,
-    const RepairCandidate& candidate,
+    const RepairCandidate* candidate,
     const Verifier& verifier,
     BreakpointFindOptions find_options,
     bool& changed) {
@@ -364,8 +445,8 @@ std::vector<Breakpoint> replay_breakpoints(
             const auto stored = source.backend().stored_commit(record.id);
             const auto original = source.objects().get_canonical<Delta>(stored.delta_object);
             const auto before = repository.world(branch).snapshot();
-            auto edited = record.id == candidate.trigger.commit
-                ? edit_delta(before, original, candidate)
+            auto edited = candidate != nullptr && record.id == candidate->trigger.commit
+                ? edit_delta(before, original, *candidate)
                 : EditedDelta{original, std::nullopt, false};
             changed = changed || edited.changed;
             if (edited.delayed.has_value()) {
@@ -387,7 +468,163 @@ std::vector<Breakpoint> replay_breakpoints(
     }
 }
 
+struct ReplayEvaluation {
+    bool replayed{false};
+    bool changed{false};
+    bool survives{true};
+    std::optional<Breakpoint> survivor;
+    std::string explanation;
+};
+
+ReplayEvaluation replay_and_match(
+    const Repository& repository,
+    std::string_view branch,
+    const Breakpoint& breakpoint,
+    const RepairCandidate* candidate,
+    const Verifier& verifier,
+    BreakpointFindOptions find_options) {
+    ReplayEvaluation result;
+    try {
+        bool changed = false;
+        const auto repaired = replay_breakpoints(
+            repository,
+            branch,
+            candidate,
+            verifier,
+            find_options,
+            changed);
+        result.replayed = true;
+        result.changed = changed;
+        result.survivor = surviving_breakpoint(breakpoint, repaired);
+        result.survives = result.survivor.has_value();
+        if (candidate == nullptr) {
+            result.explanation = result.survives
+                ? "equivalent breakpoint survived identity replay"
+                : "equivalent breakpoint did not survive identity replay";
+        } else if (!changed) {
+            result.explanation = "candidate did not edit the replayed history";
+        } else {
+            result.explanation = result.survives
+                ? "equivalent breakpoint survived counterfactual replay"
+                : "equivalent breakpoint did not survive counterfactual replay";
+        }
+    } catch (const std::exception& error) {
+        result.replayed = false;
+        result.changed = false;
+        result.survives = true;
+        result.explanation = fmt::format("counterfactual replay failed: {}", error.what());
+    }
+    return result;
+}
+
+CounterfactualRepairMeasure repair_measure_from_evaluation(
+    const RepairCandidate& candidate,
+    const ReplayEvaluation& evaluation) {
+    CounterfactualRepairMeasure result;
+    result.candidate = candidate;
+    const auto cost = IntrinsicEditCost{}.measure(candidate.script);
+    result.canonical_cost = cost.value;
+    result.canonical_script = cost.canonical_script;
+    result.replayed = evaluation.changed;
+    result.survives = evaluation.survives;
+    result.survivor = evaluation.survivor;
+    result.explanation = evaluation.explanation;
+    return result;
+}
+
+std::vector<std::string> sample_evidence(const std::optional<Breakpoint>& survivor) {
+    if (!survivor.has_value()) {
+        return {};
+    }
+    return sorted_unique_strings(survivor->evidence_ids);
+}
+
+std::vector<std::string> carried_evidence(const std::vector<CounterfactualFiltrationSample>& samples) {
+    std::vector<std::string> carried;
+    bool initialized = false;
+    for (const auto& sample : samples) {
+        if (!sample.survives) {
+            continue;
+        }
+        auto evidence = sorted_unique_strings(sample.evidence_ids);
+        if (!initialized) {
+            carried = std::move(evidence);
+            initialized = true;
+            continue;
+        }
+        std::vector<std::string> intersection;
+        std::ranges::set_intersection(carried, evidence, std::back_inserter(intersection));
+        carried = std::move(intersection);
+    }
+    return carried;
+}
+
+void summarize_filtration(CounterfactualFiltration& filtration) {
+    if (filtration.samples.empty()) {
+        return;
+    }
+
+    const auto max_scale = filtration.samples.back().scale;
+    bool in_region = false;
+    CounterfactualSurvivalRegion region;
+    for (const auto& sample : filtration.samples) {
+        if (!sample.survives) {
+            if (!filtration.minimal_killing_scale.has_value()) {
+                filtration.minimal_killing_scale = sample.scale;
+            }
+            if (in_region) {
+                region.death_scale = sample.scale;
+                region.persistence_length = std::max(0.0, region.death_scale - region.birth_scale);
+                filtration.persistence_length += region.persistence_length;
+                if (!filtration.death_scale.has_value()) {
+                    filtration.death_scale = region.death_scale;
+                }
+                filtration.surviving_regions.push_back(region);
+                region = {};
+                in_region = false;
+            }
+            continue;
+        }
+
+        if (!filtration.birth_scale.has_value()) {
+            filtration.birth_scale = sample.scale;
+        }
+        if (!in_region) {
+            region = {};
+            region.birth_scale = sample.scale;
+            in_region = true;
+        }
+        region.last_surviving_scale = sample.scale;
+    }
+
+    if (in_region) {
+        region.death_scale = max_scale;
+        region.survives_to_max_scale = true;
+        region.persistence_length = std::max(0.0, region.death_scale - region.birth_scale);
+        filtration.persistence_length += region.persistence_length;
+        filtration.surviving_regions.push_back(region);
+    }
+
+    filtration.carried_evidence_ids = carried_evidence(filtration.samples);
+}
+
 }  // namespace
+
+std::string_view to_string(CounterfactualInterventionKind kind) noexcept {
+    switch (kind) {
+    case CounterfactualInterventionKind::Identity:
+        return "identity";
+    case CounterfactualInterventionKind::ConstrainTriggeringRelation:
+        return "constrain_triggering_relation";
+    case CounterfactualInterventionKind::DelayTriggeringRelation:
+        return "delay_triggering_relation";
+    case CounterfactualInterventionKind::ReplaceTriggeringRelation:
+        return "replace_triggering_relation";
+    case CounterfactualInterventionKind::RemoveTriggeringRelation:
+        return "remove_triggering_relation";
+    }
+    return "identity";
+}
 
 bool equivalent_breakpoint(const Breakpoint& original, const Breakpoint& candidate) {
     return original.kind == candidate.kind
@@ -414,37 +651,55 @@ CounterfactualRepairMeasure CounterfactualMeasure::evaluate(
     const RepairCandidate& candidate,
     const Verifier* verifier,
     BreakpointFindOptions find_options) const {
-    CounterfactualRepairMeasure result;
-    result.candidate = candidate;
-    const auto cost = IntrinsicEditCost{}.measure(candidate.script);
-    result.canonical_cost = cost.value;
-    result.canonical_script = cost.canonical_script;
+    Verifier default_verifier;
+    const auto& replay_verifier = verifier == nullptr ? default_verifier : *verifier;
+    return repair_measure_from_evaluation(
+        candidate,
+        replay_and_match(repository, branch, breakpoint, &candidate, replay_verifier, find_options));
+}
+
+CounterfactualFiltration CounterfactualMeasure::filtration(
+    const Repository& repository,
+    const ProjectionStore& store,
+    std::string_view branch,
+    const Breakpoint& breakpoint,
+    const Verifier* verifier,
+    BreakpointFindOptions find_options,
+    CounterfactualFiltrationOptions options) const {
+    CounterfactualFiltration result;
+    result.breakpoint = breakpoint;
 
     Verifier default_verifier;
     const auto& replay_verifier = verifier == nullptr ? default_verifier : *verifier;
-    try {
-        bool changed = false;
-        const auto repaired = replay_breakpoints(
+    const auto candidates = RepairCandidateBuilder{}.build_all(store, branch, breakpoint);
+    for (const auto scale : scale_samples(std::move(options))) {
+        CounterfactualFiltrationSample sample;
+        sample.scale = scale;
+        sample.intervention = intervention_for_scale(scale);
+
+        const auto* candidate = candidate_for_intervention(candidates, sample.intervention);
+        const auto evaluation = replay_and_match(
             repository,
             branch,
+            breakpoint,
             candidate,
             replay_verifier,
-            find_options,
-            changed);
-        result.replayed = changed;
-        result.survivor = surviving_breakpoint(breakpoint, repaired);
-        result.survives = result.survivor.has_value();
-        result.explanation = result.survives
-            ? "equivalent breakpoint survived counterfactual replay"
-            : "equivalent breakpoint did not survive counterfactual replay";
-        if (!changed) {
-            result.explanation = "candidate did not edit the replayed history";
+            find_options);
+
+        sample.replayed = evaluation.replayed;
+        sample.transformed = evaluation.changed;
+        sample.survives = evaluation.survives;
+        sample.survivor = evaluation.survivor;
+        sample.evidence_ids = sample_evidence(sample.survivor);
+        sample.explanation = evaluation.explanation;
+        if (candidate != nullptr) {
+            sample.candidate = *candidate;
+            sample.repair = repair_measure_from_evaluation(*candidate, evaluation);
         }
-    } catch (const std::exception& error) {
-        result.replayed = false;
-        result.survives = true;
-        result.explanation = fmt::format("counterfactual replay failed: {}", error.what());
+        result.samples.push_back(std::move(sample));
     }
+
+    summarize_filtration(result);
     return result;
 }
 

@@ -25,6 +25,7 @@ struct BreakpointMeasurement {
     bool has_eliminating_repair{false};
     std::vector<std::string> evidence_chain_ids;
     std::vector<CounterfactualRepairMeasure> repairs;
+    CounterfactualFiltration filtration;
 };
 
 class BreakpointMeasure {

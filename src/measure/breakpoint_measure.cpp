@@ -108,6 +108,27 @@ std::string severity_text(const BreakpointMeasurement& measurement) {
     return std::to_string(measurement.severity);
 }
 
+std::string scale_text(const std::optional<double>& scale) {
+    if (!scale.has_value()) {
+        return "none";
+    }
+    return fmt::format("{:.6f}", *scale);
+}
+
+std::string evidence_text(const std::vector<std::string>& evidence) {
+    if (evidence.empty()) {
+        return "none";
+    }
+    std::ostringstream output;
+    for (std::size_t index = 0; index < evidence.size(); ++index) {
+        if (index != 0) {
+            output << ", ";
+        }
+        output << evidence[index];
+    }
+    return output.str();
+}
+
 }  // namespace
 
 BreakpointMeasurement BreakpointMeasure::measure(
@@ -123,21 +144,24 @@ BreakpointMeasurement BreakpointMeasure::measure(
     measurement.evidence_chain_ids = chain.evidence_ids;
     measurement.compression = evidence_compression(store, branch, breakpoint, chain);
 
-    std::vector<RepairCandidate> candidates;
+    measurement.filtration.breakpoint = breakpoint;
     try {
-        candidates = RepairCandidateBuilder{}.build_all(store, branch, breakpoint);
+        measurement.filtration = CounterfactualMeasure{}.filtration(
+            repository,
+            store,
+            branch,
+            breakpoint,
+            verifier,
+            find_options);
     } catch (const std::exception&) {
         return measurement;
     }
-    measurement.repairs.reserve(candidates.size());
-    for (const auto& candidate : candidates) {
-        auto repaired = CounterfactualMeasure{}.evaluate(
-            repository,
-            branch,
-            breakpoint,
-            candidate,
-            verifier,
-            find_options);
+
+    for (const auto& sample : measurement.filtration.samples) {
+        if (!sample.repair.has_value()) {
+            continue;
+        }
+        auto repaired = *sample.repair;
         if (repaired.replayed && !repaired.survives) {
             measurement.has_eliminating_repair = true;
             measurement.severity = std::min(measurement.severity, repaired.canonical_cost);
@@ -193,6 +217,26 @@ std::string render_breakpoint_measure_text(const BreakpointMeasurement& measurem
         measurement.breakpoint.trigger.detail);
     output << fmt::format("severity:    {}\n", severity_text(measurement));
     output << fmt::format("compression: {:.6f}\n", measurement.compression);
+    output << fmt::format(
+        "filtration:  birth={} death={} persistence={:.6f} kill={}\n",
+        scale_text(measurement.filtration.birth_scale),
+        scale_text(measurement.filtration.death_scale),
+        measurement.filtration.persistence_length,
+        scale_text(measurement.filtration.minimal_killing_scale));
+    output << fmt::format("evidence:    {}\n", evidence_text(measurement.filtration.carried_evidence_ids));
+    output << "surviving regions:\n";
+    if (measurement.filtration.surviving_regions.empty()) {
+        output << "  none\n";
+    }
+    for (const auto& region : measurement.filtration.surviving_regions) {
+        output << fmt::format(
+            "  [{:.6f}, {:.6f}{} last={:.6f} persistence={:.6f}\n",
+            region.birth_scale,
+            region.death_scale,
+            region.survives_to_max_scale ? "]" : ")",
+            region.last_surviving_scale,
+            region.persistence_length);
+    }
     output << "repairs:\n";
     for (const auto& repair : measurement.repairs) {
         output << fmt::format(
@@ -230,8 +274,30 @@ std::string render_breakpoint_rank_text(
 
 std::string render_repair_set_text(const BreakpointMeasurement& measurement) {
     std::ostringstream output;
-    output << fmt::format("Breakpoint repair set: {}\n", measurement.breakpoint.id);
-    output << "----------------------\n";
+    output << fmt::format("Breakpoint counterfactual filtration: {}\n", measurement.breakpoint.id);
+    output << "------------------------------------\n";
+    output << fmt::format(
+        "birth={} death={} persistence={:.6f} kill={}\n",
+        scale_text(measurement.filtration.birth_scale),
+        scale_text(measurement.filtration.death_scale),
+        measurement.filtration.persistence_length,
+        scale_text(measurement.filtration.minimal_killing_scale));
+    output << fmt::format("evidence carried across scales: {}\n", evidence_text(measurement.filtration.carried_evidence_ids));
+    output << "scales:\n";
+    for (const auto& sample : measurement.filtration.samples) {
+        output << fmt::format(
+            "  t={:.6f} {} replay={} transform={} survives={}",
+            sample.scale,
+            to_string(sample.intervention),
+            sample.replayed ? "yes" : "no",
+            sample.transformed ? "yes" : "no",
+            sample.survives ? "yes" : "no");
+        if (sample.repair.has_value()) {
+            output << fmt::format(" cost={}", sample.repair->canonical_cost);
+        }
+        output << fmt::format(" evidence={}\n", evidence_text(sample.evidence_ids));
+    }
+    output << "repairs:\n";
     for (const auto& repair : measurement.repairs) {
         output << fmt::format(
             "{} cost={} survives={} replay={}\n",

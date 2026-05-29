@@ -78,6 +78,10 @@ TEST_CASE("breakpoint severity is minimum replayed edit cost that eliminates sur
     REQUIRE(first.severity == second.severity);
     REQUIRE(first.repairs.size() == 4);
     REQUIRE(first.compression > 0.0);
+    REQUIRE(first.filtration.samples.size() == 5);
+    REQUIRE(first.filtration.birth_scale.has_value());
+    REQUIRE(first.filtration.minimal_killing_scale.has_value());
+    REQUIRE_FALSE(first.filtration.surviving_regions.empty());
 
     auto minimum = std::numeric_limits<std::uint64_t>::max();
     for (const auto& repair : first.repairs) {
@@ -88,6 +92,7 @@ TEST_CASE("breakpoint severity is minimum replayed edit cost that eliminates sur
     REQUIRE(first.severity == minimum);
 
     REQUIRE(edge_criticality("external/e2", {first}) == first.severity);
+    REQUIRE(render_breakpoint_measure_text(first).find("filtration") != std::string::npos);
     REQUIRE(render_repair_set_text(first).find("replace_triggering_relation") != std::string::npos);
 
     std::filesystem::remove_all(root);
