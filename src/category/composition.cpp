@@ -2,10 +2,15 @@
 #include "pv/category/composition.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <fmt/format.h>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <utility>
+#include <variant>
+
+#include "pv/core/value.hpp"
 
 namespace pv {
 namespace {
@@ -49,18 +54,113 @@ std::optional<RelationType> find_relation(const WorldSnapshot& snapshot, std::st
     return std::nullopt;
 }
 
-RelationType intern_relation_delta(Delta& delta, const WorldSnapshot& snapshot, std::string name) {
-    if (const auto existing = find_relation(snapshot, name); existing.has_value()) {
-        return *existing;
+// Resolve relation names to ids, allocating new ids for unseen names and tracking
+// allocations so several new relations interned into one delta never collide.
+class RelationInterner {
+public:
+    RelationInterner(const WorldSnapshot& snapshot, Delta& delta) : snapshot_(snapshot), delta_(delta) {
+        for (const auto& [id, name] : snapshot_.relation_names) {
+            next_ = std::max(next_, id + 1);
+        }
     }
 
-    std::uint32_t next = 1;
-    for (const auto& [id, _] : snapshot.relation_names) {
-        next = std::max(next, id + 1);
+    RelationType intern(const std::string& name) {
+        if (const auto existing = find_relation(snapshot_, name); existing.has_value()) {
+            return *existing;
+        }
+        if (const auto iter = cache_.find(name); iter != cache_.end()) {
+            return iter->second;
+        }
+        const RelationType relation{next_++};
+        delta_.append_intern_relation(name, relation);
+        cache_.emplace(name, relation);
+        return relation;
     }
-    const auto relation = RelationType{next};
-    delta.append_intern_relation(std::move(name), relation);
-    return relation;
+
+private:
+    const WorldSnapshot& snapshot_;
+    Delta& delta_;
+    std::unordered_map<std::string, RelationType> cache_;
+    std::uint32_t next_{1};
+};
+
+std::optional<ObjectId> object_id_by_name(const WorldSnapshot& snapshot, std::string_view name) {
+    for (const auto& object : snapshot.objects) {
+        if (object.name == name) {
+            return object.id;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<double> numeric_value(const Value& value) {
+    switch (value.kind) {
+    case ValueKind::Int64:
+        return static_cast<double>(std::get<std::int64_t>(value.data));
+    case ValueKind::UInt64:
+        return static_cast<double>(std::get<std::uint64_t>(value.data));
+    case ValueKind::Float64:
+        return std::get<double>(value.data);
+    default:
+        return std::nullopt;
+    }
+}
+
+std::optional<double> attribute_number(const ObjectSnapshot& object, const std::string& key) {
+    for (const auto& attribute : object.attributes) {
+        if (attribute.key == key) {
+            return numeric_value(attribute.value);
+        }
+    }
+    return std::nullopt;
+}
+
+// Store an integral result as an unsigned/signed integer so attributes read back
+// cleanly (generation = 2, not 2.0); fall back to float for fractional results.
+Value number_value(double result) {
+    if (std::isfinite(result) && std::floor(result) == result) {
+        if (result >= 0.0) {
+            return uint64_value(static_cast<std::uint64_t>(result));
+        }
+        return int64_value(static_cast<std::int64_t>(result));
+    }
+    return float64_value(result);
+}
+
+// Evaluate a morphism `set` expression against the object's current attributes.
+// Returns nullopt if any operand attribute is missing or non-numeric, so the
+// caller can skip the action instead of writing a bogus value.
+std::optional<double> evaluate_expr(const std::vector<MorphismExprTerm>& expr, const ObjectSnapshot& object) {
+    if (expr.empty()) {
+        return std::nullopt;
+    }
+    const auto operand = [&](const MorphismExprTerm& term) -> std::optional<double> {
+        return term.literal ? std::optional<double>{term.value} : attribute_number(object, term.attribute);
+    };
+    auto accumulator = operand(expr.front());
+    if (!accumulator.has_value()) {
+        return std::nullopt;
+    }
+    for (std::size_t index = 1; index < expr.size(); ++index) {
+        const auto rhs = operand(expr[index]);
+        if (!rhs.has_value()) {
+            return std::nullopt;
+        }
+        switch (expr[index].op) {
+        case '+': *accumulator += *rhs; break;
+        case '-': *accumulator -= *rhs; break;
+        case '*': *accumulator *= *rhs; break;
+        case '/':
+            if (*rhs == 0.0) {
+                return std::nullopt;
+            }
+            *accumulator /= *rhs;
+            break;
+        default:
+            return std::nullopt;
+        }
+    }
+    return accumulator;
 }
 
 void expire_prior_morphism_edges(Delta& delta, const WorldSnapshot& snapshot, ObjectId object, RelationType relation) {
@@ -111,29 +211,61 @@ MorphismSignature DefinedMorphism::signature() const {
 
 Delta DefinedMorphism::apply(const WorldSnapshot& snapshot, const Selection& selection) const {
     Delta delta;
-    std::optional<RelationType> relation;
+    RelationInterner interner{snapshot, delta};
+    std::optional<RelationType> self_relation;
     std::size_t transformed = 0;
+    std::size_t applied_actions = 0;
+    std::size_t skipped_actions = 0;
     for (const auto object : selection.objects) {
         const auto* view = snapshot.object(object);
         if (view == nullptr || view->type != signature_.domain) {
             continue;
         }
-        if (!relation.has_value()) {
-            relation = intern_relation_delta(delta, snapshot, fmt::format("morphism.{}", name_));
+        if (!self_relation.has_value()) {
+            self_relation = interner.intern(fmt::format("morphism.{}", name_));
         }
-        expire_prior_morphism_edges(delta, snapshot, object, *relation);
+        expire_prior_morphism_edges(delta, snapshot, object, *self_relation);
         if (signature_.domain != signature_.codomain) {
             delta.append_update(ObjectUpdate{ObjectRef{object}, signature_.codomain, std::nullopt});
         }
         delta.append_link(PointerCreate{
             ObjectRef{object},
             ObjectRef{object},
-            *relation,
+            *self_relation,
             CausalRole::Transformative,
             Weight{1.0},
             "morphism",
             {}
         });
+
+        // Beyond retyping: run the declared transformation actions on the object.
+        for (const auto& action : actions_) {
+            if (const auto* set = std::get_if<MorphismSetAttribute>(&action)) {
+                if (const auto result = evaluate_expr(set->expr, *view); result.has_value()) {
+                    delta.append_set_object_attribute(ObjectRef{object}, Attribute{set->key, number_value(*result)});
+                    applied_actions += 1;
+                } else {
+                    skipped_actions += 1;
+                }
+            } else if (const auto* emit = std::get_if<MorphismEmitEdge>(&action)) {
+                const auto target = object_id_by_name(snapshot, emit->target);
+                if (target.has_value()) {
+                    const auto relation = interner.intern(emit->relation);
+                    delta.append_link(PointerCreate{
+                        ObjectRef{emit->reverse ? *target : object},
+                        ObjectRef{emit->reverse ? object : *target},
+                        relation,
+                        emit->role,
+                        Weight{emit->weight},
+                        "morphism",
+                        {}
+                    });
+                    applied_actions += 1;
+                } else {
+                    skipped_actions += 1;
+                }
+            }
+        }
         transformed += 1;
     }
     delta.append_event(TraceEvent{
@@ -142,10 +274,20 @@ Delta DefinedMorphism::apply(const WorldSnapshot& snapshot, const Selection& sel
         {{"name", name_}},
         {
             {"selected_objects", static_cast<double>(selection.objects.size())},
-            {"transformed_objects", static_cast<double>(transformed)}
+            {"transformed_objects", static_cast<double>(transformed)},
+            {"applied_actions", static_cast<double>(applied_actions)},
+            {"skipped_actions", static_cast<double>(skipped_actions)}
         }
     });
     return delta;
+}
+
+void DefinedMorphism::add_action(MorphismAction action) {
+    actions_.push_back(std::move(action));
+}
+
+const std::vector<MorphismAction>& DefinedMorphism::actions() const noexcept {
+    return actions_;
 }
 
 ComposedMorphism::ComposedMorphism(

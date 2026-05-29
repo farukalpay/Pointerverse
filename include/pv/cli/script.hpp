@@ -10,8 +10,11 @@
 #include "pv/category/morphism.hpp"
 #include "pv/core/world.hpp"
 #include "pv/domain/package.hpp"
+#include "pv/rule/derivation.hpp"
 #include "pv/rule/rule_engine.hpp"
 #include "pv/runtime/transaction.hpp"
+
+#include <vector>
 
 namespace pv {
 class Repository;
@@ -72,8 +75,11 @@ private:
     RuleEngine rule_engine_;
     DomainRegistry domains_;
     RuleBuilder rule_builder_;
+    std::vector<Derivation> derivations_;
     std::unique_ptr<TransactionSink> sink_;
     std::unordered_map<std::string, std::shared_ptr<const Morphism>> morphisms_;
+    // The most recently declared morphism, so trailing `set`/`emit` lines attach to it.
+    std::shared_ptr<DefinedMorphism> pending_morphism_;
 };
 
 }  // namespace pv::cli

@@ -6,6 +6,7 @@
 
 #include "pv/core/world.hpp"
 #include "pv/domain/schema.hpp"
+#include "pv/rule/derivation.hpp"
 #include "pv/rule/rule.hpp"
 
 namespace pv {
@@ -14,6 +15,7 @@ struct DomainPackage {
     std::string name;
     DomainSchema schema;
     std::vector<Rule> rules;
+    std::vector<Derivation> derivations;
 };
 
 void install_domain_schema(World& world, const DomainPackage& package);

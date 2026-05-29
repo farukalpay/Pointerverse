@@ -1,0 +1,72 @@
+# Rust wipe-day decision domain.
+#
+# This does not model the game. It models the order of a solo player's early
+# decisions and the preconditions that keep progress bankable. Each rule fires on
+# a decision (the trigger) and requires a precondition edge between the same two
+# objects, so they hold under the current single-hop rule engine.
+
+domain rust_wipe_blackbox
+
+type Player
+type Server
+type SpawnZone
+type Road
+type Monument
+type Recycler
+type Route
+type BaseSite
+type Base
+type Bag
+type Stash
+type Risk
+type Progress
+type Group
+type Loot
+type Workbench
+type ServerDecision
+
+relation joins
+relation spawns_at
+relation routes_through
+relation contests
+relation interrupts
+relation exit_ready
+relation builds_at
+relation visible_from
+relation kills
+relation loses
+relation abandons
+relation depot_ready
+relation bag_triangle_ready
+relation avoids
+relation shadows
+relation banks
+relation owns
+relation stabilizes
+relation unlocks
+relation failure_proven
+
+rule no_hot_base_before_exit_ready
+when link Player -> BaseSite : builds_at
+require before link Player -> BaseSite : exit_ready
+deny reason "{from} builds at {to} before that site has an exit route"
+
+rule no_monument_before_depot_ready
+when link Player -> Monument : contests
+require before link Player -> Monument : depot_ready
+deny reason "{from} contests {to} before a depot path exists"
+
+rule no_recycler_before_bag_triangle
+when link Player -> Recycler : contests
+require before link Player -> Recycler : bag_triangle_ready
+deny reason "{from} contests {to} before a bag triangle exists"
+
+rule no_server_hop_before_failure_proven
+when link Player -> ServerDecision : abandons
+require before link Player -> ServerDecision : failure_proven
+deny reason "{from} abandons {to} before the failure is proven"
+
+rule no_base_on_traffic_spine
+when link BaseSite -> Route : visible_from
+forbid exists link BaseSite -> Route : routes_through
+deny reason "{from} is visible on the traffic spine of {to}"

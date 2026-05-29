@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "pv/category/composition.hpp"
+#include "pv/core/value.hpp"
 #include "pv/core/world.hpp"
 #include "pv/observer/observer.hpp"
 
@@ -175,6 +176,75 @@ TEST_CASE("same-type defined morphism records a transformative graph edge") {
     REQUIRE(pointer.causal_role == CausalRole::Transformative);
     REQUIRE(pointer.law_domain == "morphism");
     REQUIRE(snapshot.relation_name(pointer.relation) == "morphism.Stabilize");
+}
+
+TEST_CASE("defined morphism applies set and emit actions, not just a retype") {
+    Verifier verifier;
+
+    World world{"people"};
+    const auto person = world.type_id("Person");
+    (void)world.type_id("Org");
+
+    Delta create_person;
+    create_person.append_create(ObjectCreate{
+        TempObjectId{1}, "Alice", person, ExistenceState::Alive, {Attribute{"generation", uint64_value(1)}}});
+    REQUIRE(world.commit(create_person, verifier).accepted);
+    REQUIRE(world.commit(world.object_delta("Acme", "Org"), verifier).accepted);
+
+    DefinedMorphism age{"Age", MorphismSignature{person, person}};
+    // set generation = generation + 1
+    age.add_action(MorphismSetAttribute{
+        "generation",
+        {MorphismExprTerm{'\0', false, 0.0, "generation"}, MorphismExprTerm{'+', true, 1.0, ""}}});
+    // emit self -> Acme : member_of
+    age.add_action(MorphismEmitEdge{"Acme", "member_of", CausalRole::Generative, 0.5, false});
+
+    const auto result = world.commit(age.apply(world.snapshot(), Selection{{world.object_by_name("Alice")}, {}}), verifier);
+    REQUIRE(result.accepted);
+
+    // set action: the attribute was recomputed, stored as an integer (1 -> 2).
+    REQUIRE(world.object(world.object_by_name("Alice")).attributes.at("generation") == uint64_value(2));
+
+    // emit action: a member_of edge from Alice to Acme now exists, alongside the
+    // morphism self-loop. That is two real edges produced by one apply.
+    const auto snapshot = world.snapshot();
+    bool found_member_of = false;
+    bool found_self_loop = false;
+    for (const auto& pointer : snapshot.pointers) {
+        const auto relation = snapshot.relation_name(pointer.relation);
+        if (relation == "member_of"
+            && pointer.from == world.object_by_name("Alice")
+            && pointer.to == world.object_by_name("Acme")) {
+            found_member_of = true;
+            REQUIRE(pointer.law_domain == "morphism");
+        }
+        if (relation == "morphism.Age"
+            && pointer.from == world.object_by_name("Alice")
+            && pointer.to == world.object_by_name("Alice")) {
+            found_self_loop = true;
+        }
+    }
+    REQUIRE(found_member_of);
+    REQUIRE(found_self_loop);
+}
+
+TEST_CASE("morphism set action is skipped when the attribute is missing or non-numeric") {
+    Verifier verifier;
+
+    World world{"people"};
+    const auto person = world.type_id("Person");
+    REQUIRE(world.commit(world.object_delta("Bob", "Person"), verifier).accepted);  // no 'generation'
+
+    DefinedMorphism age{"Age", MorphismSignature{person, person}};
+    age.add_action(MorphismSetAttribute{
+        "generation",
+        {MorphismExprTerm{'\0', false, 0.0, "generation"}, MorphismExprTerm{'+', true, 1.0, ""}}});
+
+    const auto result = world.commit(age.apply(world.snapshot(), Selection{{world.object_by_name("Bob")}, {}}), verifier);
+    REQUIRE(result.accepted);
+
+    // The set is skipped (no value written) rather than fabricating a number.
+    REQUIRE_FALSE(world.object(world.object_by_name("Bob")).attributes.contains("generation"));
 }
 
 TEST_CASE("associative paths agree by hash, law status, and observer projection") {

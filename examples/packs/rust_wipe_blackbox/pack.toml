@@ -1,0 +1,7 @@
+id = "rust_wipe_blackbox"
+title = "Record a solo Rust wipe day and check where it first broke"
+surface = "audit"
+entry = "world.pv"
+runner = "run.sh"
+expected = "expected.txt"
+readme = "README.md"

@@ -39,6 +39,27 @@ std::string quoted_reason(std::string_view line) {
     return std::string{line.substr(first + 1, last - first - 1)};
 }
 
+struct EndpointSpec {
+    std::string type;
+    PatternEndpointBinding binding;
+};
+
+// A leading '~' unpins the endpoint from the trigger: '~Type' binds to any object
+// of that type, '~' or '~*' to any object at all. Without '~' the endpoint stays
+// pinned to the trigger's from/to, which is the original (back-compatible) behavior.
+EndpointSpec parse_endpoint(const std::string& token, bool from_side) {
+    if (!token.empty() && token.front() == '~') {
+        auto type = token.substr(1);
+        if (type == "*") {
+            type.clear();
+        }
+        return EndpointSpec{std::move(type), PatternEndpointBinding::Any};
+    }
+    return EndpointSpec{
+        token,
+        from_side ? PatternEndpointBinding::TriggerFrom : PatternEndpointBinding::TriggerTo};
+}
+
 }  // namespace
 
 bool RuleBuilder::active() const noexcept {
@@ -103,8 +124,7 @@ std::optional<Rule> RuleBuilder::consume_line(std::string_view raw_line) {
         } else if (!starts_with(line, prefix)) {
             throw std::invalid_argument("usage: require exists|before|after link FROM -> TO : RELATION");
         }
-        RequirementPattern requirement;
-        requirement.pattern = parse_relation_pattern(line.substr(prefix.size()));
+        auto requirement = parse_requirement_pattern(line.substr(prefix.size()));
         requirement.search = search;
         draft_.requirements.push_back(std::move(requirement));
         return std::nullopt;
@@ -122,8 +142,7 @@ std::optional<Rule> RuleBuilder::consume_line(std::string_view raw_line) {
         } else if (!starts_with(line, prefix)) {
             throw std::invalid_argument("usage: forbid exists|before|after link FROM -> TO : RELATION");
         }
-        RequirementPattern requirement;
-        requirement.pattern = parse_relation_pattern(line.substr(prefix.size()));
+        auto requirement = parse_requirement_pattern(line.substr(prefix.size()));
         requirement.search = search;
         requirement.forbidden = true;
         draft_.requirements.push_back(std::move(requirement));
@@ -166,6 +185,28 @@ RelationPattern parse_relation_pattern(std::string_view text) {
         throw std::invalid_argument("usage: link FROM_TYPE -> TO_TYPE : RELATION");
     }
     return RelationPattern{from, relation, to};
+}
+
+RequirementPattern parse_requirement_pattern(std::string_view text) {
+    std::istringstream stream{std::string{text}};
+    std::string link;
+    std::string from;
+    std::string arrow;
+    std::string to;
+    std::string colon;
+    std::string relation;
+    stream >> link >> from >> arrow >> to >> colon >> relation;
+    if (link != "link" || from.empty() || arrow != "->" || to.empty() || colon != ":" || relation.empty()) {
+        throw std::invalid_argument(
+            "usage: link FROM -> TO : RELATION (prefix an endpoint with ~ to match any object)");
+    }
+    const auto from_spec = parse_endpoint(from, true);
+    const auto to_spec = parse_endpoint(to, false);
+    RequirementPattern requirement;
+    requirement.pattern = RelationPattern{from_spec.type, relation, to_spec.type};
+    requirement.from_binding = from_spec.binding;
+    requirement.to_binding = to_spec.binding;
+    return requirement;
 }
 
 std::vector<Rule> parse_rules(std::string_view text) {

@@ -1,0 +1,9 @@
+{"id":"br001","from":"Beach2x1Site","from_type":"BaseSite","to":"MonumentLoop_1","to_type":"Route","relation":"routes_through","weight":1.0,"role":"Generative","minute":11,"reason":"base_on_spawn_to_recycler_line"}
+{"id":"br002","from":"Beach2x1Site","from_type":"BaseSite","to":"MonumentLoop_1","to_type":"Route","relation":"visible_from","weight":1.0,"role":"Observational","minute":12,"visibility":"high"}
+{"id":"br003","from":"SoloPlayer","from_type":"Player","to":"Beach2x1Site","to_type":"BaseSite","relation":"builds_at","weight":1.0,"role":"Generative","minute":12,"grid":"H7","material":"wood"}
+{"id":"br004","from":"SoloPlayer","from_type":"Player","to":"GasStation","to_type":"Monument","relation":"contests","weight":1.0,"role":"Generative","minute":18,"scrap_seen":90}
+{"id":"br005","from":"SoloPlayer","from_type":"Player","to":"Recycler_Gas","to_type":"Recycler","relation":"contests","weight":1.0,"role":"Generative","minute":21,"loot_satchel":"scrap_90"}
+{"id":"br006","from":"Duo_BowRush","from_type":"Group","to":"SoloPlayer","to_type":"Player","relation":"kills","weight":0.9,"role":"Inhibitory","minute":23,"weapon":"bow","location":"gas_road"}
+{"id":"br007","from":"Recycler_Gas","from_type":"Recycler","to":"ProgressBank","to_type":"Progress","relation":"loses","weight":0.8,"role":"Inhibitory","minute":24,"scrap":90,"cause":"death_before_depot"}
+{"id":"br008","from":"Doorcamp_1","from_type":"Risk","to":"Beach2x1","to_type":"Base","relation":"interrupts","weight":0.8,"role":"Inhibitory","minute":31,"reason":"visible_base_path"}
+{"id":"br009","from":"SoloPlayer","from_type":"Player","to":"LateNightDecision","to_type":"ServerDecision","relation":"abandons","weight":1.0,"role":"Transformative","minute":60,"reason":"feels_behind"}

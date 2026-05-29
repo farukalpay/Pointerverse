@@ -10,6 +10,7 @@
 #include <fmt/format.h>
 
 #include "pv/domain/agent_audit.hpp"
+#include "pv/rule/derivation.hpp"
 #include "pv/rule/rule.hpp"
 
 namespace pv {
@@ -36,7 +37,8 @@ std::string strip_comment(std::string_view line) {
 
 DomainPackage parse_domain_package(std::string_view text) {
     DomainPackage package;
-    RuleBuilder builder;
+    RuleBuilder rule_builder;
+    DerivationBuilder derive_builder;
     std::istringstream input{std::string{text}};
     std::string raw;
     while (std::getline(input, raw)) {
@@ -47,7 +49,8 @@ DomainPackage parse_domain_package(std::string_view text) {
         std::istringstream stream(line);
         std::string command;
         stream >> command;
-        if (!builder.active() && (command == "domain" || command == "type" || command == "relation")) {
+        if (!rule_builder.active() && !derive_builder.active()
+            && (command == "domain" || command == "type" || command == "relation")) {
             std::string value;
             stream >> value;
             if (command == "domain") {
@@ -59,12 +62,21 @@ DomainPackage parse_domain_package(std::string_view text) {
             }
             continue;
         }
-        if (auto rule = builder.consume_line(line); rule.has_value()) {
+        if (is_derivation_command(command)) {
+            if (auto derivation = derive_builder.consume_line(line); derivation.has_value()) {
+                package.derivations.push_back(std::move(*derivation));
+            }
+            continue;
+        }
+        if (auto rule = rule_builder.consume_line(line); rule.has_value()) {
             package.rules.push_back(std::move(*rule));
         }
     }
-    if (builder.active()) {
-        throw std::invalid_argument(fmt::format("domain package rule '{}' is incomplete", builder.name()));
+    if (rule_builder.active()) {
+        throw std::invalid_argument(fmt::format("domain package rule '{}' is incomplete", rule_builder.name()));
+    }
+    if (derive_builder.active()) {
+        throw std::invalid_argument(fmt::format("domain package derivation '{}' is incomplete", derive_builder.name()));
     }
     return package;
 }

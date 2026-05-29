@@ -1,0 +1,24 @@
+# Compute a transitive closure in .pv: author a chain, then let `evolve` derive
+# the reachable pairs. Run with:
+#
+#   ./build/pointerverse world run examples/derivation.pv
+
+world new reachability
+domain load examples/derivation.pvdomain
+
+object A : Node
+object B : Node
+object C : Node
+object D : Node
+
+link A -> B : reaches
+link B -> C : reaches
+link C -> D : reaches
+
+# Before deriving, A reaches only B directly.
+inspect object A
+
+# One evolve step runs the closure: A now reaches C and D as well.
+evolve 1
+inspect object A
+inspect object D

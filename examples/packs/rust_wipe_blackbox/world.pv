@@ -1,0 +1,45 @@
+# Baseline: a high-pop wipe day before any decision is made. The spawn beach is
+# already wired into the monument/recycler traffic, which is the pressure the
+# branches will play against. The branches are then ingested from event logs.
+
+world new rust_wipe_blackbox
+domain load examples/packs/rust_wipe_blackbox/rust_wipe_rules.pvdomain
+law add no_hot_base_before_exit_ready
+law add no_monument_before_depot_ready
+law add no_recycler_before_bag_triangle
+law add no_server_hop_before_failure_proven
+law add no_base_on_traffic_spine
+law add bounded_weight
+
+object SoloPlayer : Player style=solo server_pref=high_pop first_hour_goal=stable_progress
+object HighPopWipe : Server pop=450 wipe=day0 pressure=extreme
+
+object BeachSpawn_East : SpawnZone density=very_high
+object CoastRoad_East : Road traffic=very_high
+object GasStation : Monument tier=low recycler=true
+object Harbor : Monument tier=low recycler=true
+object Supermarket : Monument tier=low recycler=true
+object Recycler_Gas : Recycler noise=high
+
+object MonumentLoop_1 : Route kind=spawn_to_road_to_gas_to_recycler
+object ShadowLoop_1 : Route kind=off_spine_monument_pulse
+
+object ClanTrio_A : Group size=3 tempo=fast
+object Duo_BowRush : Group size=2 tempo=fast
+object NakedStream : Risk density=constant
+object ProgressBank : Progress scrap=0 cloth=0 metal=0 safety=0
+
+link SoloPlayer -> HighPopWipe : joins weight=1.0 role=Generative
+link SoloPlayer -> BeachSpawn_East : spawns_at weight=1.0 role=Generative
+
+link BeachSpawn_East -> CoastRoad_East : routes_through weight=1.0 role=Generative
+link CoastRoad_East -> GasStation : routes_through weight=0.9 role=Generative
+link CoastRoad_East -> Harbor : routes_through weight=0.8 role=Generative
+link CoastRoad_East -> Supermarket : routes_through weight=0.75 role=Generative
+
+link ClanTrio_A -> GasStation : contests weight=0.9 role=Generative
+link Duo_BowRush -> Recycler_Gas : contests weight=0.8 role=Generative
+link NakedStream -> CoastRoad_East : interrupts weight=0.9 role=Inhibitory
+
+evolve 1
+inspect object SoloPlayer

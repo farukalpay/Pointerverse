@@ -1,0 +1,12 @@
+{"id":"ss001","from":"SoloPlayer","from_type":"Player","to":"ShadowRidgeSite","to_type":"BaseSite","relation":"exit_ready","weight":1.0,"role":"Generative","minute":9,"exit":"creek_to_forest"}
+{"id":"ss002","from":"SoloPlayer","from_type":"Player","to":"ShadowRidgeSite","to_type":"BaseSite","relation":"builds_at","weight":1.0,"role":"Generative","minute":16,"grid":"J8","material":"stone"}
+{"id":"ss003","from":"ShadowRidgeSite","from_type":"BaseSite","to":"CoastRoad_East","to_type":"Road","relation":"avoids","weight":0.9,"role":"Inhibitory","minute":16,"reason":"off_spine"}
+{"id":"ss004","from":"ShadowRidgeSite","from_type":"BaseSite","to":"MonumentLoop_1","to_type":"Route","relation":"shadows","weight":0.85,"role":"Observational","minute":17,"reason":"close_but_not_on_route"}
+{"id":"ss005","from":"SoloPlayer","from_type":"Player","to":"GasStation","to_type":"Monument","relation":"depot_ready","weight":1.0,"role":"Generative","minute":22,"depot":"BushStash_1"}
+{"id":"ss006","from":"SoloPlayer","from_type":"Player","to":"GasStation","to_type":"Monument","relation":"contests","weight":0.65,"role":"Generative","minute":28,"style":"short_pulse"}
+{"id":"ss007","from":"SoloPlayer","from_type":"Player","to":"Recycler_Gas","to_type":"Recycler","relation":"bag_triangle_ready","weight":1.0,"role":"Generative","minute":29,"bags":3}
+{"id":"ss008","from":"SoloPlayer","from_type":"Player","to":"Recycler_Gas","to_type":"Recycler","relation":"contests","weight":0.55,"role":"Generative","minute":31,"style":"bank_then_leave"}
+{"id":"ss009","from":"FirstPulseRun","from_type":"Loot","to":"BushStash_1","to_type":"Stash","relation":"banks","weight":1.0,"role":"Generative","minute":34,"scrap":70}
+{"id":"ss010","from":"SecondPulseRun","from_type":"Loot","to":"Ridge2x1","to_type":"Base","relation":"banks","weight":1.0,"role":"Generative","minute":44,"scrap":120,"metal":800}
+{"id":"ss011","from":"SoloPlayer","from_type":"Player","to":"Workbench1","to_type":"Workbench","relation":"unlocks","weight":1.0,"role":"Generative","minute":48,"tier":1}
+{"id":"ss012","from":"StabilizedHour1","from_type":"Progress","to":"SoloPlayer","to_type":"Player","relation":"stabilizes","weight":1.0,"role":"Generative","minute":55,"scrap":190,"bags":3,"base":"stone","deaths":0}

@@ -34,6 +34,13 @@ private:
 };
 
 [[nodiscard]] RelationPattern parse_relation_pattern(std::string_view text);
+
+// Parse a requirement/forbid pattern. Identical to parse_relation_pattern except
+// each endpoint may be prefixed with '~' to unpin it from the trigger: '~Type'
+// matches any object of that type, bare '~' or '~*' matches any object, and a
+// bare 'Type' (no prefix) stays pinned to the trigger's from/to (back-compat).
+[[nodiscard]] RequirementPattern parse_requirement_pattern(std::string_view text);
+
 [[nodiscard]] std::vector<Rule> parse_rules(std::string_view text);
 
 }  // namespace pv

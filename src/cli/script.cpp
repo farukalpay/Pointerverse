@@ -20,6 +20,7 @@
 #include "pv/hash/canonical.hpp"
 #include "pv/kernel/vm.hpp"
 #include "pv/observer/observer.hpp"
+#include "pv/rule/derivation.hpp"
 #include "pv/storage/repository.hpp"
 
 namespace pv::cli {
@@ -215,10 +216,19 @@ Transaction transaction_from_program(
     return tx;
 }
 
-EvolveResult evolve_through_sink(TransactionSink& sink, std::size_t steps) {
+EvolveResult evolve_through_sink(
+    TransactionSink& sink,
+    std::size_t steps,
+    const std::vector<Derivation>& derivations) {
     EvolveResult result;
     result.requested_steps = steps;
-    EvolutionProgram program;
+    // ForwardEvolution keeps the existing per-epoch bookkeeping; DerivationEvolution
+    // runs the closure of any declared `derive` blocks. With no derivations the second
+    // rule is a no-op, so worlds that do not use `derive` evolve exactly as before.
+    EvolutionProgram program{{
+        std::make_shared<ForwardEvolution>(),
+        std::make_shared<DerivationEvolution>(derivations)
+    }};
 
     for (std::size_t index = 0; index < steps; ++index) {
         auto delta = program.step(sink.world().snapshot(), Epoch{sink.world().epoch().value + 1});
@@ -255,6 +265,47 @@ std::string read_file(const std::string& path) {
     std::ostringstream buffer;
     buffer << input.rdbuf();
     return buffer.str();
+}
+
+// Parse a morphism `set` expression: whitespace-separated operands and + - * /
+// operators, e.g. "generation + 1". Operands are numeric literals or attribute
+// names; the expression is evaluated left to right at apply time.
+std::vector<MorphismExprTerm> parse_morphism_expr(const std::string& text) {
+    std::vector<MorphismExprTerm> terms;
+    std::istringstream stream(text);
+    std::string token;
+    bool expect_operand = true;
+    char pending_op = '\0';
+    while (stream >> token) {
+        if (expect_operand) {
+            MorphismExprTerm term;
+            term.op = pending_op;
+            try {
+                std::size_t consumed = 0;
+                const double value = std::stod(token, &consumed);
+                if (consumed == token.size()) {
+                    term.literal = true;
+                    term.value = value;
+                } else {
+                    term.attribute = token;
+                }
+            } catch (const std::exception&) {
+                term.attribute = token;
+            }
+            terms.push_back(std::move(term));
+            expect_operand = false;
+        } else {
+            if (token.size() != 1 || std::string{"+-*/"}.find(token) == std::string::npos) {
+                throw std::invalid_argument(fmt::format("unexpected token '{}' in set expression", token));
+            }
+            pending_op = token.front();
+            expect_operand = true;
+        }
+    }
+    if (expect_operand && !terms.empty()) {
+        throw std::invalid_argument("set expression ends with a dangling operator");
+    }
+    return terms;
 }
 
 }  // namespace
@@ -357,6 +408,12 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
         stream >> command;
         auto& world = sink_->world();
 
+        // `set`/`emit` attach to the morphism declared just above them; any other
+        // command ends that morphism block.
+        if (command != "set" && command != "emit") {
+            pending_morphism_.reset();
+        }
+
         if (is_rule_command(command)) {
             const auto completed = rule_builder_.consume_line(line);
             if (completed.has_value()) {
@@ -369,7 +426,7 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
         }
 
         if (command == "help") {
-            output << "=> commands: world new, domain use, domain load, rule, object, link, morphism, compose, apply, law add, evolve, inspect, trace export\n";
+            output << "=> commands: world new, domain use, domain load, rule, object, link, morphism, set, emit, compose, apply, law add, evolve, inspect, trace export\n";
             return true;
         }
 
@@ -386,7 +443,9 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             verifier_ = Verifier{};
             rule_engine_ = RuleEngine{};
             rule_builder_.reset();
+            derivations_.clear();
             morphisms_.clear();
+            pending_morphism_.reset();
             output << fmt::format("=> world {} epoch=0\n", name);
             return true;
         }
@@ -402,24 +461,28 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
                 }
                 install_domain_schema(world, *package);
                 rule_engine_.add_all(package->rules);
+                derivations_.insert(derivations_.end(), package->derivations.begin(), package->derivations.end());
                 output << fmt::format(
-                    "=> domain {} loaded types={} relations={} rules={}\n",
+                    "=> domain {} loaded types={} relations={} rules={} derivations={}\n",
                     package->name,
                     package->schema.object_types.size(),
                     package->schema.relations.size(),
-                    package->rules.size());
+                    package->rules.size(),
+                    package->derivations.size());
                 return true;
             }
             if (subcommand == "load" && !name_or_path.empty()) {
                 const auto package = parse_domain_package(read_file(name_or_path));
                 install_domain_schema(world, package);
                 rule_engine_.add_all(package.rules);
+                derivations_.insert(derivations_.end(), package.derivations.begin(), package.derivations.end());
                 output << fmt::format(
-                    "=> domain file {} loaded types={} relations={} rules={}\n",
+                    "=> domain file {} loaded types={} relations={} rules={} derivations={}\n",
                     name_or_path,
                     package.schema.object_types.size(),
                     package.schema.relations.size(),
-                    package.rules.size());
+                    package.rules.size(),
+                    package.derivations.size());
                 return true;
             }
             throw std::invalid_argument("usage: domain use NAME | domain load PATH");
@@ -495,7 +558,63 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
                 name,
                 MorphismSignature{world.type_id(from_type), world.type_id(to_type)});
             morphisms_[name] = morphism;
+            pending_morphism_ = morphism;
             output << fmt::format("=> morphism {} : {} -> {}\n", name, from_type, to_type);
+            return true;
+        }
+
+        if (command == "set") {
+            if (!pending_morphism_) {
+                throw std::invalid_argument("set must directly follow a morphism declaration");
+            }
+            std::string key;
+            std::string equals;
+            stream >> key >> equals;
+            if (key.empty() || equals != "=") {
+                throw std::invalid_argument("usage: set KEY = EXPRESSION (e.g. set generation = generation + 1)");
+            }
+            std::string expression;
+            std::getline(stream, expression);
+            auto expr = parse_morphism_expr(expression);
+            if (expr.empty()) {
+                throw std::invalid_argument("set requires an expression after '='");
+            }
+            pending_morphism_->add_action(MorphismSetAttribute{key, std::move(expr)});
+            output << fmt::format("=> morphism {} sets {}\n", pending_morphism_->name(), key);
+            return true;
+        }
+
+        if (command == "emit") {
+            if (!pending_morphism_) {
+                throw std::invalid_argument("emit must directly follow a morphism declaration");
+            }
+            std::string left;
+            std::string arrow;
+            std::string right;
+            std::string colon;
+            std::string relation;
+            stream >> left >> arrow >> right >> colon >> relation;
+            if (left.empty() || arrow != "->" || right.empty() || colon != ":" || relation.empty()) {
+                throw std::invalid_argument(
+                    "usage: emit self -> TARGET : RELATION [weight=1.0] [role=Generative] | emit TARGET -> self : RELATION");
+            }
+            MorphismEmitEdge action;
+            action.relation = relation;
+            if (left == "self") {
+                action.reverse = false;
+                action.target = right;
+            } else if (right == "self") {
+                action.reverse = true;
+                action.target = left;
+            } else {
+                throw std::invalid_argument("emit requires one endpoint to be 'self'");
+            }
+            const auto options = parse_options(stream);
+            action.role = causal_role_from_string(string_option(options, "role", string_option(options, "causal_role", "Generative")));
+            action.weight = double_option(options, "weight", 1.0);
+            const auto target_name = action.target;
+            pending_morphism_->add_action(std::move(action));
+            output << fmt::format("=> morphism {} emits {} : {}\n", pending_morphism_->name(), target_name, relation);
             return true;
         }
 
@@ -615,7 +734,7 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             if (steps == 0) {
                 throw std::invalid_argument("usage: evolve STEPS");
             }
-            const auto result = evolve_through_sink(*sink_, steps);
+            const auto result = evolve_through_sink(*sink_, steps, derivations_);
             output << fmt::format(
                 "=> evolved {} step(s); epoch={}; rejected={}\n",
                 result.completed_steps,

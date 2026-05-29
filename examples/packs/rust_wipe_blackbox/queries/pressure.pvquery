@@ -1,0 +1,13 @@
+objects type Player
+objects type BaseSite
+objects type Risk
+objects type Progress
+links relation routes_through
+links relation visible_from
+links relation avoids
+links relation shadows
+links relation kills
+links relation loses
+links relation stabilizes
+commits touching object SoloPlayer
+cone object SoloPlayer depth 2 direction both

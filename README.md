@@ -1,17 +1,37 @@
 # Pointerverse
 
-Pointerverse is a deterministic engine for provable worlds. You describe a world
-as a program, run it into content-addressed commits, fork it into alternate
-histories, and let typed laws check every transition. Then you can query the
-graph, ask why a fact exists, compare two branches, and verify that the entire
-store replays bit for bit.
+Pointerverse is a deterministic engine for verifiable worlds. You describe a
+world as a program, run it into content-addressed commits, fork it into
+alternate histories, and let typed laws check every transition. Then you can
+query the graph, ask why a fact exists, compare two branches, and replay the
+entire store bit for bit.
 
-In one line: version control for simulated realities. Fork a world, run the
-consequences, and prove every step.
+In one line: version control for branching worlds. Fork a world, record the
+consequences, and check every step against your laws.
 
 ```txt
 World scripts / event logs / apps -> Kernel VM -> Runtime -> Store -> Sentinel
 ```
+
+## What it does - and what it doesn't
+
+Pointerverse **records and checks**; it does not predict. The history you give
+it - a `.pv` script, an ingested event log - is authored by you. The engine's
+job is to (a) check that authored history against the laws you declared and
+(b) make it content-addressed and replayable, so anyone can reproduce it
+exactly and detect tampering.
+
+In the Mohács and city packs the outcomes - the rout, the king lost in the
+stream, the flood - are written by hand in the fork scripts (see
+`examples/packs/city/flood.pv`). The engine does not derive them. What it adds
+is verification and reproducibility: the counterfactual is consistent with the
+declared laws, and the whole transcript replays to the same hashes.
+
+So "proof" here is precise: a commit's proof is a Merkle commitment to its
+transcript - an integrity and reproducibility guarantee - not a proof of a world
+property. The category layer's laws (associativity and identity of morphism
+composition) are property-tested in `tests/category/category_tests.cpp`; the
+demos are checked, reproducible records, and they say so.
 
 ## The model
 
@@ -51,7 +71,7 @@ cmake -S . -B build -G Ninja \
 cmake --build build
 ```
 
-## Sixty seconds: fork a real history and prove it
+## Sixty seconds: fork a real history and check it
 
 The flagship pack builds the Battle of Mohács, 29 August 1526, from the
 historical record - real commanders, real numbers, the real date - then forks it
@@ -73,9 +93,9 @@ require before link RoyalArmy -> Battlefield : reinforced
 
 The `historical` fork gives battle early, so the engine rejects that commit on
 the spot - the same mistake the chroniclers recorded - and the rout, the king in
-the Csele stream, and the fall of Buda follow. The `reinforced` fork waits for
-the relief armies, the same law passes, and the line holds. Then you read the
-divergence back out of the store:
+the Csele stream, and the fall of Buda follow, all authored in the fork script.
+The `reinforced` fork waits for the relief armies, the same law passes, and the
+line holds. Then you read the divergence back out of the store:
 
 ```sh
 ./build/pointerverse repo --store examples/packs/mohacs/.pack-store \
@@ -87,7 +107,8 @@ divergence back out of the store:
 
 `branch compare` names the first commit where the two afternoons diverge.
 `fsck` confirms the whole store is intact and replayable. The history is real;
-the counterfactual is the point.
+the counterfactual is the point. Mohács is a thin slice of a deeply documented
+campaign - the pack is meant to be extended.
 
 ## Write your own world
 
@@ -114,9 +135,58 @@ Run it, persist it to a repository, fork it, and inspect the result:
 ./build/pointerverse repo --store .pvstore explain main commit <hash>
 ```
 
-`explain commit` prints the exact delta a commit applied and how each law
-stood. Custom rules, including temporal `require before` and `forbid after`
-constraints, can be packaged with a schema and shared as a domain file.
+`explain commit` prints the exact delta a commit applied and how each law stood.
+
+## Compute in `.pv`
+
+Worlds are not only authored edge by edge. A domain file (`domain load`) can
+declare computation that the engine runs deterministically:
+
+- **Derivations** are bounded forward-chaining rules. Body atoms are joined on
+  shared variables and the head edge is produced for every binding, run to a
+  fixpoint by `evolve`. This expresses relational closures - reachability,
+  transitive citation - that a single-hop rule cannot:
+
+  ```txt
+  derive transitive_reach
+  from link X -> Y : reaches
+  from link Y -> Z : reaches
+  make link X -> Z : reaches role=Structural weight=1.0
+  ```
+
+  ```sh
+  ./build/pointerverse world run examples/derivation.pv
+  ```
+
+  Re-running `evolve` recomputes the same closure from the authored graph, so it
+  is idempotent. Derivations close over edges, not arithmetic; they are a small
+  Datalog-style step, not full logic programming.
+
+- **Endpoint binding** lets a rule's `require`/`forbid` look beyond the trigger's
+  own endpoints. Prefix an endpoint with `~` to match any object instead of the
+  trigger's from/to, so two-edge and third-object constraints become expressible:
+
+  ```txt
+  rule no_modify_while_any_quarantined
+  when link Agent -> File : modifies
+  forbid exists link Agent -> ~File : quarantined
+  deny reason "{from} modifies {to} while holding a quarantined file"
+  ```
+
+  Path constraints across many hops are expressed by *deriving* the closure
+  edges (above) and then checking them, not inside one rule.
+
+- **Morphisms** transform the objects they apply to, beyond retyping. A `set`
+  action recomputes a numeric attribute; an `emit` action creates an edge:
+
+  ```txt
+  morphism promote : Junior -> Senior
+  set level = level + 1
+  emit self -> Board : reports_to weight=0.5 role=Generative
+  ```
+
+Custom rules, derivations, and a schema can be packaged into one domain file and
+shared with `domain load`.
 
 ## Surfaces
 
@@ -157,10 +227,11 @@ Demo packs live under `examples/packs`. Each one is a self-contained world with
 
 ```sh
 ./build/pointerverse packs
-./build/pointerverse pack run mohacs          # fork a real battle into two afternoons
-./build/pointerverse pack run city            # fork a city into flood, blackout, evacuation
-./build/pointerverse pack run code_review     # turn a risky diff into graph evidence
-./build/pointerverse pack run kernel_corruption  # corrupt a proof chain and watch Sentinel catch it
+./build/pointerverse pack run mohacs              # fork a real battle into two afternoons
+./build/pointerverse pack run city                # fork a city into flood, blackout, evacuation
+./build/pointerverse pack run code_review         # turn a risky diff into graph evidence
+./build/pointerverse pack run rust_wipe_blackbox  # record a wipe day and find where it first broke
+./build/pointerverse pack run kernel_corruption   # corrupt a proof chain and watch Sentinel catch it
 ```
 
 ## Architecture

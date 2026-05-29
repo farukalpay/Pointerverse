@@ -62,6 +62,7 @@ bool is_state_event(std::string_view event) {
 
 bool is_empty_transition_marker(std::string_view event) {
     return event == "world.evolve"
+        || event == "world.derive"
         || event == "evolution.step"
         || event == "morphism.apply"
         || event == "morphism.compose";

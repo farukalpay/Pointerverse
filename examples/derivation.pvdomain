@@ -1,0 +1,17 @@
+# A reusable domain with one forward-chaining derivation.
+#
+# `derive` blocks turn `evolve` into a bounded inference step: body atoms (the
+# `from` lines) are joined on shared variables, and the `make` head edge is
+# produced for every binding, run to a fixpoint over the current graph. This
+# expresses relational closures - here, transitive reachability - that a
+# single-hop rule cannot state.
+
+domain reachability
+
+type Node
+relation reaches
+
+derive transitive_reach
+from link X -> Y : reaches
+from link Y -> Z : reaches
+make link X -> Z : reaches role=Structural weight=1.0

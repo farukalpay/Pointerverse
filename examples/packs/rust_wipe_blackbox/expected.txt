@@ -1,0 +1,24 @@
+law no_hot_base_before_exit_ready registered
+events read:          9
+violations:           5
+violations:           0
+violations:           1
+first-broke: law no_base_on_traffic_spine on branch beach_rush
+  Beach2x1Site is visible on the traffic spine of MonumentLoop_1
+first-broke: law no_hot_base_before_exit_ready on branch beach_rush
+  SoloPlayer builds at Beach2x1Site before that site has an exit route
+first-broke: law no_recycler_before_bag_triangle on branch beach_rush
+  SoloPlayer contests Recycler_Gas before a bag triangle exists
+first-broke: law no_server_hop_before_failure_proven on branch beach_rush
+  SoloPlayer abandons LateNightDecision before the failure is proven
+Audit timeline: beach_rush SoloPlayer
+first-broke: law no_hot_base_before_exit_ready on branch shadow_spoke
+  never broke on this branch
+  P26 ShadowRidgeSite -> CoastRoad_East : avoids
+first divergent commit:
+law.no_hot_base_before_exit_ready passed (stable)
+Repository backend
+Repository index check
+Pointerverse Sentinel Boot
+boot:              clean
+status:             clean

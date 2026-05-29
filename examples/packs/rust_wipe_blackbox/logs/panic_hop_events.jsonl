@@ -1,0 +1,2 @@
+{"id":"ph001","from":"SoloPlayer","from_type":"Player","to":"SecondServerDecision","to_type":"ServerDecision","relation":"abandons","weight":1.0,"role":"Transformative","minute":75,"reason":"behind_again"}
+{"id":"ph002","from":"SoloPlayer","from_type":"Player","to":"AnotherHighPopWipe","to_type":"Server","relation":"joins","weight":1.0,"role":"Generative","minute":80,"pop":500}

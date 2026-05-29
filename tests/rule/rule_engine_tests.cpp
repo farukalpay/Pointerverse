@@ -189,6 +189,90 @@ TEST_CASE("forbid rule accepts a trigger when the forbidden relation is absent")
         verifier).accepted);
 }
 
+TEST_CASE("forbid with ~ endpoint binding matches a third object, not just the trigger endpoint") {
+    // '~File' unpins the requirement target from the trigger's File: modifying any file
+    // is forbidden while the agent already holds some *other* quarantined file. The old,
+    // pinned form could never express this -- it only saw the trigger's own endpoints.
+    auto rules = parse_rules(
+        "rule no_modify_while_any_quarantined\n"
+        "when link Agent -> File : modifies\n"
+        "forbid exists link Agent -> ~File : quarantined\n"
+        "deny reason \"{from} modifies {to} while holding a quarantined file\"\n");
+    REQUIRE(rules.size() == 1);
+    REQUIRE(rules.front().requirements.size() == 1);
+    REQUIRE(rules.front().requirements.front().forbidden);
+    REQUIRE(rules.front().requirements.front().from_binding == PatternEndpointBinding::TriggerFrom);
+    REQUIRE(rules.front().requirements.front().to_binding == PatternEndpointBinding::Any);
+
+    Verifier verifier;
+    verifier.add(std::make_shared<PatternLaw>(rules.front()));
+
+    World world{"audit"};
+    REQUIRE(world.commit(world.object_delta("Agent0", "Agent"), verifier).accepted);
+    REQUIRE(world.commit(world.object_delta("FileA", "File"), verifier).accepted);
+    REQUIRE(world.commit(world.object_delta("FileB", "File"), verifier).accepted);
+    // Quarantine a DIFFERENT file than the one about to be modified.
+    REQUIRE(world.commit(
+        world.link_delta(
+            world.object_by_name("Agent0"),
+            world.object_by_name("FileB"),
+            "quarantined",
+            1.0,
+            CausalRole::Structural),
+        verifier).accepted);
+
+    const auto rejected = world.commit(
+        world.link_delta(
+            world.object_by_name("Agent0"),
+            world.object_by_name("FileA"),
+            "modifies",
+            1.0,
+            CausalRole::Structural),
+        verifier);
+
+    REQUIRE_FALSE(rejected.accepted);
+    REQUIRE(rejected.violations.size() == 1);
+    REQUIRE(rejected.violations.front().law == "no_modify_while_any_quarantined");
+}
+
+TEST_CASE("pinned endpoint (no ~) stays bound to the trigger and ignores a third object") {
+    // Same scenario, but the requirement is pinned to the trigger's File. Quarantining a
+    // different file must NOT trip the rule -- this is the original, back-compatible behavior.
+    auto rules = parse_rules(
+        "rule no_modify_while_this_quarantined\n"
+        "when link Agent -> File : modifies\n"
+        "forbid exists link Agent -> File : quarantined\n"
+        "deny reason \"{from} modifies quarantined {to}\"\n");
+    REQUIRE(rules.front().requirements.front().from_binding == PatternEndpointBinding::TriggerFrom);
+    REQUIRE(rules.front().requirements.front().to_binding == PatternEndpointBinding::TriggerTo);
+
+    Verifier verifier;
+    verifier.add(std::make_shared<PatternLaw>(rules.front()));
+
+    World world{"audit"};
+    REQUIRE(world.commit(world.object_delta("Agent0", "Agent"), verifier).accepted);
+    REQUIRE(world.commit(world.object_delta("FileA", "File"), verifier).accepted);
+    REQUIRE(world.commit(world.object_delta("FileB", "File"), verifier).accepted);
+    REQUIRE(world.commit(
+        world.link_delta(
+            world.object_by_name("Agent0"),
+            world.object_by_name("FileB"),
+            "quarantined",
+            1.0,
+            CausalRole::Structural),
+        verifier).accepted);
+
+    // Modifying FileA is fine: only FileB is quarantined and the requirement is pinned to FileA.
+    REQUIRE(world.commit(
+        world.link_delta(
+            world.object_by_name("Agent0"),
+            world.object_by_name("FileA"),
+            "modifies",
+            1.0,
+            CausalRole::Structural),
+        verifier).accepted);
+}
+
 TEST_CASE("observe verifier records violations without rejecting commits") {
     auto rules = parse_rules(
         "rule no_write_without_read\n"

@@ -159,6 +159,7 @@ add_library(pointerverse_rules
     src/rule/pattern.cpp
     src/rule/rule.cpp
     src/rule/rule_engine.cpp
+    src/rule/derivation.cpp
 )
 pointerverse_configure_target(pointerverse_rules)
 target_link_libraries(pointerverse_rules PUBLIC pointerverse_kernel)
@@ -328,6 +329,7 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/query/query_tests.cpp
         tests/query/repository_query_tests.cpp
         tests/rule/rule_engine_tests.cpp
+        tests/rule/derivation_tests.cpp
         tests/runtime/branch_tests.cpp
         tests/runtime/transaction_tests.cpp
         tests/sentinel/boot_gate_tests.cpp
