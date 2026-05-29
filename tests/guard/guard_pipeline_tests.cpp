@@ -66,8 +66,9 @@ TEST_CASE("guard pipeline ingests diff, persists graph, and renders reports") {
     const auto result = run_guard(options);
 
     REQUIRE(result.report.changed_files >= 5);
-    REQUIRE(result.report.risk_score >= 70);
-    REQUIRE((result.report.status == "risky" || result.report.status == "critical"));
+    REQUIRE(result.report.measured_risk.law_distance > 0);
+    REQUIRE(result.report.projected_score > 0);
+    REQUIRE(result.report.status == "risky");
     REQUIRE(result.ingestion.accepted == result.report.changed_files);
     REQUIRE(std::filesystem::exists(root / "audit-report.md"));
     const auto markdown = read_file(root / "audit-report.md");
@@ -80,6 +81,8 @@ TEST_CASE("guard pipeline ingests diff, persists graph, and renders reports") {
 
     const auto json = nlohmann::json::parse(render_guard_report_json(result.report));
     REQUIRE(json["tool"] == "Pointerverse Guard");
+    REQUIRE(json["measured_risk"]["law_distance"].get<std::uint64_t>() > 0);
+    REQUIRE(json["strict_decision"]["failed"] == true);
     REQUIRE(json["findings"].size() >= 4);
 
     const auto sarif = nlohmann::json::parse(render_guard_report_sarif(result.report));

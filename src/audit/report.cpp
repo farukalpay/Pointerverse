@@ -10,9 +10,9 @@
 #include <sstream>
 #include <string_view>
 
-#include "pv/audit/risk_score.hpp"
 #include "pv/hash/canonical.hpp"
 #include "pv/law/law.hpp"
+#include "pv/measure/risk_projection.hpp"
 #include "pv/runtime/transaction.hpp"
 #include "pv/storage/repository.hpp"
 
@@ -35,6 +35,49 @@ std::vector<std::string> touched_objects(const CommitRecord& record) {
     return {names.begin(), names.end()};
 }
 
+nlohmann::json risk_vector_json(RiskVector risk) {
+    return {
+        {"structural", risk.structural},
+        {"law_distance", risk.law_distance},
+        {"repair_distance", risk.repair_distance},
+        {"surprise", risk.surprise}
+    };
+}
+
+nlohmann::json evidence_json(const RiskEvidence& evidence) {
+    nlohmann::json json;
+    json["component"] = evidence.component;
+    json["input_root"] = to_hex(evidence.input_root);
+    json["output_root"] = to_hex(evidence.output_root);
+    json["objects"] = nlohmann::json::array();
+    for (const auto object : evidence.objects) {
+        json["objects"].push_back(to_string(object));
+    }
+    json["pointers"] = nlohmann::json::array();
+    for (const auto pointer : evidence.pointers) {
+        json["pointers"].push_back(to_string(pointer));
+    }
+    json["commits"] = nlohmann::json::array();
+    for (const auto commit : evidence.commits) {
+        json["commits"].push_back(to_hex(commit.value));
+    }
+    json["laws"] = evidence.laws;
+    json["explanation"] = evidence.explanation;
+    return json;
+}
+
+nlohmann::json measured_risk_json(const MeasuredRisk& measured) {
+    nlohmann::json json;
+    json["commit"] = to_hex(measured.commit.value);
+    json["risk"] = risk_vector_json(measured.value);
+    json["measurement_hash"] = to_hex(measured.measurement_hash);
+    json["evidence"] = nlohmann::json::array();
+    for (const auto& evidence : measured.evidence) {
+        json["evidence"].push_back(evidence_json(evidence));
+    }
+    return json;
+}
+
 }  // namespace
 
 AuditReport AuditReportGenerator::generate(
@@ -42,6 +85,9 @@ AuditReport AuditReportGenerator::generate(
     std::string_view branch) const {
     AuditReport report;
     report.branch = std::string{branch};
+    report.measured_risks = MeasuredRiskFunctional{}.measure_branch(repository, branch);
+    report.risk = joined_risk(report.measured_risks);
+    report.risk_score = static_cast<int>(std::min<std::uint64_t>(project(report.risk), 100));
 
     for (const auto& record : repository.history(branch)) {
         if (record.origin == TransactionOrigin::Internal) {
@@ -51,7 +97,6 @@ AuditReport AuditReportGenerator::generate(
         const auto objects = touched_objects(record);
         for (const auto& violation : record.violations) {
             const auto severity = to_string(violation.severity);
-            report.risk_score += risk_points(violation.severity);
             report.violations.push_back(AuditViolation{
                 record.id,
                 record.after_epoch,
@@ -77,7 +122,13 @@ std::string render_audit_report_text(const AuditReport& report) {
     output << "------------------\n";
     output << fmt::format("commits checked: {}\n", report.commits_checked);
     output << fmt::format("violations: {}\n", report.violations.size());
-    output << fmt::format("risk score: {}\n", report.risk_score);
+    output << fmt::format(
+        "risk: structural={} law={} repair={} surprise={}\n",
+        report.risk.structural,
+        report.risk.law_distance,
+        report.risk.repair_distance,
+        report.risk.surprise);
+    output << fmt::format("projection: {}\n", report.risk_score);
     if (report.violations.empty()) {
         output << "\nno violations\n";
         return output.str();
@@ -144,6 +195,11 @@ std::string render_audit_report_json(const AuditReport& report) {
     json["branch"] = report.branch;
     json["commits_checked"] = report.commits_checked;
     json["risk_score"] = report.risk_score;
+    json["risk"] = risk_vector_json(report.risk);
+    json["measured_risks"] = nlohmann::json::array();
+    for (const auto& measured : report.measured_risks) {
+        json["measured_risks"].push_back(measured_risk_json(measured));
+    }
     json["warnings"] = report.warnings;
     json["violations"] = nlohmann::json::array();
     for (const auto& violation : report.violations) {

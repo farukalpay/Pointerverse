@@ -89,11 +89,18 @@ private:
         std::vector<LawViolation> violations;
         for (const auto& pointer : ctx.after.pointers) {
             if (!ctx.after.contains(pointer.from) || !ctx.after.contains(pointer.to)) {
+                double missing_endpoints = 0.0;
+                if (!ctx.after.contains(pointer.from)) {
+                    missing_endpoints += 1.0;
+                }
+                if (!ctx.after.contains(pointer.to)) {
+                    missing_endpoints += 1.0;
+                }
                 violations.push_back(pointer_violation(
                     ctx,
                     name_,
                     Severity::Error,
-                    1.0,
+                    missing_endpoints,
                     fmt::format("pointer {} references an object outside the snapshot", to_string(pointer.id)),
                     pointer));
             }
@@ -105,11 +112,19 @@ private:
         std::vector<LawViolation> violations;
         for (const auto& pointer : ctx.after.pointers) {
             if (!std::isfinite(pointer.weight.value) || pointer.weight.value < 0.0 || pointer.weight.value > 1.0 + tolerance_) {
+                double distance = 1.0;
+                if (std::isfinite(pointer.weight.value)) {
+                    if (pointer.weight.value < 0.0) {
+                        distance = std::abs(pointer.weight.value);
+                    } else if (pointer.weight.value > 1.0 + tolerance_) {
+                        distance = pointer.weight.value - 1.0;
+                    }
+                }
                 violations.push_back(pointer_violation(
                     ctx,
                     name_,
                     Severity::Error,
-                    std::abs(pointer.weight.value),
+                    distance,
                     fmt::format("pointer {} has out-of-bound weight {:.12g}", to_string(pointer.id), pointer.weight.value),
                     pointer));
             }
@@ -150,7 +165,7 @@ private:
                     ctx,
                     name_,
                     Severity::Error,
-                    1.0,
+                    static_cast<double>(pointer.born_at.value - pointer.expires_at->value),
                     fmt::format("pointer {} expires before it is born", to_string(pointer.id)),
                     pointer));
             }

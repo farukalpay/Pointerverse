@@ -7,15 +7,41 @@
 #include <vector>
 
 #include "pv/guard/finding.hpp"
+#include "pv/measure/risk_functional.hpp"
 #include "pv/runtime/ids.hpp"
 
 namespace pv {
+
+struct GuardStrictPolicy {
+    bool fail_on_law_distance{true};
+    bool fail_on_repair_distance{true};
+    double structural_percentile{0.95};
+    double surprise_percentile{0.95};
+    std::size_t min_history_commits_for_calibration{30};
+};
+
+struct GuardStrictDecision {
+    bool failed{false};
+    bool law_distance_failed{false};
+    bool repair_distance_failed{false};
+    bool structural_failed{false};
+    bool surprise_failed{false};
+    std::uint64_t structural_threshold{0};
+    std::uint64_t surprise_threshold{0};
+    std::size_t calibration_commits{0};
+    std::vector<std::string> warnings;
+};
 
 struct GuardReport {
     std::string repo;
     std::string base;
     std::string head;
     std::string mode;
+    RiskVector measured_risk;
+    std::uint64_t projected_score{0};
+    std::vector<MeasuredRisk> measured_risks;
+    GuardStrictPolicy strict_policy;
+    GuardStrictDecision strict_decision;
     int risk_score{0};
     std::string status{"clean"};
     std::size_t changed_files{0};

@@ -118,6 +118,13 @@ TEST_CASE("layered targets do not include higher product surfaces") {
         CAPTURE(file.string());
         REQUIRE_FALSE(includes_any_forbidden(file, storage_forbidden));
     }
+
+    const std::vector<std::string> measure_forbidden{"pv/guard/", "pv/audit/", "pv/ingest/", "apps/"};
+    for (const auto& file : files_under({root / "include" / "pv" / "measure", root / "src" / "measure"})) {
+        CAPTURE(file.string());
+        REQUIRE_FALSE(includes_any_forbidden(file, measure_forbidden));
+        REQUIRE(read_file(file).find("risk_points") == std::string::npos);
+    }
 }
 
 TEST_CASE("pointerverse main stays a registry entry point") {

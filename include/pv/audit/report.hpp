@@ -9,6 +9,7 @@
 
 #include "pv/runtime/ids.hpp"
 #include "pv/core/id.hpp"
+#include "pv/measure/risk_functional.hpp"
 
 namespace pv {
 
@@ -26,6 +27,8 @@ struct AuditViolation {
 struct AuditReport {
     std::string branch;
     std::size_t commits_checked{0};
+    RiskVector risk;
+    std::vector<MeasuredRisk> measured_risks;
     int risk_score{0};
     std::vector<AuditViolation> violations;
     std::vector<std::string> warnings;

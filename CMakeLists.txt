@@ -127,6 +127,24 @@ add_library(pointerverse_query
 pointerverse_configure_target(pointerverse_query)
 target_link_libraries(pointerverse_query PUBLIC pointerverse_storage)
 
+add_library(pointerverse_measure
+    src/measure/risk_value.cpp
+    src/measure/risk_lattice.cpp
+    src/measure/risk_evidence.cpp
+    src/measure/structural_measure.cpp
+    src/measure/law_measure.cpp
+    src/measure/repair_measure.cpp
+    src/measure/history_measure.cpp
+    src/measure/risk_functional.cpp
+    src/measure/risk_projection.cpp
+)
+pointerverse_configure_target(pointerverse_measure)
+target_link_libraries(pointerverse_measure
+    PUBLIC
+        pointerverse_storage
+        pointerverse_query
+)
+
 add_library(pointerverse_rules
     src/rule/pattern.cpp
     src/rule/rule.cpp
@@ -165,6 +183,7 @@ add_library(pointerverse_audit
 )
 pointerverse_configure_target(pointerverse_audit)
 target_link_libraries(pointerverse_audit PUBLIC pointerverse_storage pointerverse_ingest)
+target_link_libraries(pointerverse_audit PUBLIC pointerverse_measure)
 
 add_library(pointerverse_guard
     src/guard/finding.cpp
@@ -175,6 +194,7 @@ add_library(pointerverse_guard
 )
 pointerverse_configure_target(pointerverse_guard)
 target_link_libraries(pointerverse_guard PUBLIC pointerverse_ingest pointerverse_audit)
+target_link_libraries(pointerverse_guard PUBLIC pointerverse_measure)
 
 add_library(pointerverse_cli_common
     src/cli/script.cpp
@@ -187,6 +207,7 @@ target_link_libraries(pointerverse_cli_common
     PUBLIC
         pointerverse_storage
         pointerverse_query
+        pointerverse_measure
         pointerverse_domains
         pointerverse_rules
         CLI11::CLI11
@@ -201,6 +222,7 @@ target_link_libraries(pointerverse_sdk
         pointerverse_storage
         pointerverse_sentinel
         pointerverse_query
+        pointerverse_measure
         pointerverse_rules
         pointerverse_domains
 )
@@ -212,6 +234,7 @@ add_executable(pointerverse
     apps/pointerverse/commands/commands.cpp
     apps/pointerverse/commands/guard_command.cpp
     apps/pointerverse/commands/ingest_command.cpp
+    apps/pointerverse/commands/measure_command.cpp
     apps/pointerverse/commands/pack_command.cpp
     apps/pointerverse/commands/pack_runner.cpp
     apps/pointerverse/commands/repo_command.cpp
@@ -226,6 +249,7 @@ target_link_libraries(pointerverse
         pointerverse_sentinel
         pointerverse_guard
         pointerverse_audit
+        pointerverse_measure
         pointerverse_ingest
         fmt::fmt
 )
@@ -276,6 +300,12 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/kernel/program_codec_tests.cpp
         tests/kernel/proof_tests.cpp
         tests/kernel/vm_tests.cpp
+        tests/measure/risk_lattice_tests.cpp
+        tests/measure/structural_measure_tests.cpp
+        tests/measure/law_measure_tests.cpp
+        tests/measure/repair_measure_tests.cpp
+        tests/measure/history_measure_tests.cpp
+        tests/measure/risk_functional_tests.cpp
         tests/audit/report_tests.cpp
         tests/law/law_tests.cpp
         tests/query/query_tests.cpp
@@ -309,6 +339,7 @@ if(POINTERVERSE_BUILD_TESTS)
             pointerverse_sdk
             pointerverse_sentinel
             pointerverse_ingest
+            pointerverse_measure
             pointerverse_audit
             pointerverse_guard
             Catch2::Catch2WithMain

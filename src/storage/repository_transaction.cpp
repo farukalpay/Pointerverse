@@ -135,6 +135,7 @@ RepositoryCommitObjects RepositoryTransactionWriter::write_commit(const Reposito
 
     commits_.upsert(make_commit_entry(write.branch, write.record, stored));
     events_.index_commit(write.branch, write.record, write.after_snapshot);
+    world_index_.index_commit(write.record.id, write.record.after_root, write.after_snapshot);
 
     if (write.accepted_ref.has_value()) {
         refs_.update_branch(*write.accepted_ref);

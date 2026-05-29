@@ -427,6 +427,10 @@ TEST_CASE("CLI ingest and audit commands produce reports") {
         + " && " + shell_quote(POINTERVERSE_CLI_PATH)
         + " audit export main --format json --store .pvstore >> " + shell_quote(report_path)
         + " && " + shell_quote(POINTERVERSE_CLI_PATH)
+        + " measure risk main --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH)
+        + " measure export main --format json --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH)
         + " audit timeline main Agent0 --store .pvstore >> " + shell_quote(report_path)
         + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo fsck >> " + shell_quote(report_path);
 
@@ -436,6 +440,8 @@ TEST_CASE("CLI ingest and audit commands produce reports") {
     REQUIRE(report.find("accepted:             3") != std::string::npos);
     REQUIRE(report.find("violations: 1") != std::string::npos);
     REQUIRE(report.find("no_pr_without_tests") != std::string::npos);
+    REQUIRE(report.find("Measured risk: main") != std::string::npos);
+    REQUIRE(report.find("\"measured_risks\"") != std::string::npos);
     REQUIRE(report.find("\"violations\"") != std::string::npos);
     REQUIRE(report.find("Audit timeline: main Agent0") != std::string::npos);
     REQUIRE(report.find("status:             clean") != std::string::npos);

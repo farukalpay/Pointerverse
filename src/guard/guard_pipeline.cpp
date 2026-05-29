@@ -2,6 +2,7 @@
 #include "pv/guard/guard_pipeline.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -9,10 +10,15 @@
 #include <utility>
 #include <vector>
 
+#include <fmt/format.h>
+
+#include "pv/domain/agent_audit.hpp"
 #include "pv/guard/git_diff_adapter.hpp"
 #include "pv/guard/policy_pack.hpp"
 #include "pv/ingest/agent_audit_adapter.hpp"
 #include "pv/ingest/ingestion_index.hpp"
+#include "pv/measure/risk_projection.hpp"
+#include "pv/rule/rule_engine.hpp"
 #include "pv/runtime/transaction.hpp"
 #include "pv/storage/repository.hpp"
 
@@ -121,15 +127,72 @@ void validate_options(const GuardRunOptions& options) {
     (void)render_guard_report(GuardReport{}, options.format);
 }
 
+Verifier guard_measure_verifier() {
+    const auto package = make_agent_audit_domain();
+    RuleEngine rules;
+    rules.add_all(package.rules);
+    Verifier verifier{VerificationMode::Observe};
+    for (const auto& rule : rules.rules()) {
+        verifier.add(rules.make_law(rule.name));
+    }
+    return verifier;
+}
+
+std::uint64_t percentile_threshold(std::vector<std::uint64_t> values, double percentile) {
+    if (values.empty()) {
+        return 0;
+    }
+    std::ranges::sort(values);
+    auto index = static_cast<std::size_t>(std::ceil(percentile * static_cast<double>(values.size())));
+    if (index == 0) {
+        index = 1;
+    }
+    return values[std::min(index - 1U, values.size() - 1U)];
+}
+
+GuardStrictDecision strict_decision_for(const GuardReport& report) {
+    GuardStrictDecision decision;
+    decision.calibration_commits = report.measured_risks.size();
+    if (report.strict_policy.fail_on_law_distance && report.measured_risk.law_distance > 0) {
+        decision.law_distance_failed = true;
+    }
+    if (report.strict_policy.fail_on_repair_distance && report.measured_risk.repair_distance > 0) {
+        decision.repair_distance_failed = true;
+    }
+
+    if (report.measured_risks.size() >= report.strict_policy.min_history_commits_for_calibration) {
+        std::vector<std::uint64_t> structural;
+        std::vector<std::uint64_t> surprise;
+        structural.reserve(report.measured_risks.size());
+        surprise.reserve(report.measured_risks.size());
+        for (const auto& measured : report.measured_risks) {
+            structural.push_back(measured.value.structural);
+            surprise.push_back(measured.value.surprise);
+        }
+        decision.structural_threshold = percentile_threshold(structural, report.strict_policy.structural_percentile);
+        decision.surprise_threshold = percentile_threshold(surprise, report.strict_policy.surprise_percentile);
+        decision.structural_failed = report.measured_risk.structural > decision.structural_threshold;
+        decision.surprise_failed = report.measured_risk.surprise > decision.surprise_threshold;
+    } else {
+        decision.warnings.push_back(fmt::format(
+            "structural/surprise calibration unavailable: need {} commits, have {}",
+            report.strict_policy.min_history_commits_for_calibration,
+            report.measured_risks.size()));
+    }
+
+    decision.failed = decision.law_distance_failed
+        || decision.repair_distance_failed
+        || decision.structural_failed
+        || decision.surprise_failed;
+    return decision;
+}
+
 }  // namespace
 
 bool guard_strict_failed(const GuardReport& report) noexcept {
-    if (report.risk_score >= 70) {
-        return true;
-    }
-    return std::ranges::any_of(report.findings, [](const GuardFinding& finding) {
-        return finding.severity == FindingSeverity::High || finding.severity == FindingSeverity::Critical;
-    });
+    return report.strict_decision.failed
+        || report.measured_risk.law_distance > 0
+        || report.measured_risk.repair_distance > 0;
 }
 
 GuardRunResult run_guard(const GuardRunOptions& options) {
@@ -145,12 +208,14 @@ GuardRunResult run_guard(const GuardRunOptions& options) {
     IngestionOptions ingestion_options;
     ingestion_options.branch = options.branch;
     ingestion_options.domain = "agent_audit";
-    ingestion_options.mode = options.mode == "strict" ? VerificationMode::Strict : VerificationMode::Observe;
+    ingestion_options.mode = VerificationMode::Observe;
     auto ingestion = IngestionPipeline{repository}.ingest(events, AgentAuditAdapter{}, index, ingestion_options);
 
     auto findings = PrGuardPolicyPack{}.evaluate(entries);
     const auto commits = evidence_commits(repository, options.branch);
     attach_commits(findings, commits);
+    auto measure_verifier = guard_measure_verifier();
+    auto measured = MeasuredRiskFunctional{}.measure_branch(repository, options.branch, &measure_verifier);
 
     GuardReport report;
     report.repo = repo.string();
@@ -167,8 +232,13 @@ GuardRunResult run_guard(const GuardRunOptions& options) {
     report.affected_files = affected_files(entries);
     report.findings = std::move(findings);
     report.evidence_commits = commits;
-    report.risk_score = guard_risk_score(report.findings);
-    report.status = guard_status_for_risk(report.risk_score);
+    report.measured_risks = std::move(measured);
+    report.measured_risk = joined_risk(report.measured_risks);
+    report.projected_score = project(report.measured_risk);
+    report.risk_score = static_cast<int>(std::min<std::uint64_t>(report.projected_score, 100));
+    report.strict_policy = options.strict_policy;
+    report.strict_decision = strict_decision_for(report);
+    report.status = report.strict_decision.failed ? "risky" : guard_status_for_risk(report.risk_score);
 
     if (options.write_default_artifacts) {
         report.artifacts = {".pvstore/", "audit-report.md", "audit-report.json", "audit.sarif"};

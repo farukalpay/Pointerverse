@@ -319,6 +319,7 @@ void RepositoryEngine::rebuild_indexes() const {
             record.violations = objects_.get_canonical<std::vector<LawViolation>>(stored.violation_object);
             const auto after = SnapshotMaterializer{objects_, commits_, branches_}.materialize_commit(id);
             rebuilt_events.index_commit(ref.name, record, after);
+            rebuilt_world.index_commit(id, record.after_root, after);
         }
 
         branch_entries.push_back(BranchIndexEntry{ref.name, ref.branch, ref.head, ref.snapshot, ref.epoch, ids});

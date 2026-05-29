@@ -13,6 +13,7 @@ std::unique_ptr<cli_app::Command> make_repo_command();
 std::unique_ptr<cli_app::Command> make_trace_command();
 std::unique_ptr<cli_app::Command> make_ingest_command();
 std::unique_ptr<cli_app::Command> make_audit_command();
+std::unique_ptr<cli_app::Command> make_measure_command();
 std::unique_ptr<cli_app::Command> make_guard_command();
 std::unique_ptr<cli_app::Command> make_sentinel_command();
 std::unique_ptr<cli_app::Command> make_surface_command();
