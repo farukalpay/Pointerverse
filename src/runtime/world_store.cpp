@@ -168,7 +168,14 @@ BranchId WorldStore::fork_branch(BranchId source, std::string new_name) {
 }
 
 ForkResult WorldStore::fork(BranchId source, std::string new_name) {
+    return fork_with_id(source, BranchId{next_branch_id_++}, std::move(new_name));
+}
+
+ForkResult WorldStore::fork_with_id(BranchId source, BranchId forked_id, std::string new_name) {
     const auto& source_state = state(source);
+    if (!forked_id.valid()) {
+        throw std::invalid_argument("forked branch id must be valid");
+    }
     if (!source_state.branch.head.has_value()) {
         throw std::runtime_error("cannot fork branch without a head commit");
     }
@@ -176,7 +183,6 @@ ForkResult WorldStore::fork(BranchId source, std::string new_name) {
         throw std::invalid_argument(fmt::format("branch '{}' already exists", new_name));
     }
 
-    const auto forked_id = BranchId{next_branch_id_++};
     Branch forked;
     forked.id = forked_id;
     forked.name = std::move(new_name);
@@ -199,6 +205,7 @@ ForkResult WorldStore::fork(BranchId source, std::string new_name) {
     fork_state.world.trace_.append(result.events);
     fork_state.history = source_state.history;
     branches_.push_back(std::move(fork_state));
+    next_branch_id_ = std::max(next_branch_id_, forked_id.value + 1);
     return result;
 }
 
@@ -306,6 +313,10 @@ const CommitRecord* WorldStore::commit_record(CommitId id) const noexcept {
 
 MergeAnalysis WorldStore::analyze_merge(BranchId left, BranchId right) const {
     return pv::analyze_merge(*this, left, right);
+}
+
+std::size_t WorldStore::branch_count() const noexcept {
+    return branches_.size();
 }
 
 const CommitGraph& WorldStore::graph() const noexcept {

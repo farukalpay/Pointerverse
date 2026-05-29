@@ -13,6 +13,8 @@
 #include "pv/runtime/replayer.hpp"
 #include "pv/runtime/world_store.hpp"
 #include "pv/storage/content_store.hpp"
+#include "pv/storage/recovery.hpp"
+#include "pv/storage/repository_engine.hpp"
 #include "pv/storage/manifest.hpp"
 #include "pv/storage/ref_store.hpp"
 #include "pv/storage/wal.hpp"
@@ -27,6 +29,11 @@ struct RepositoryStatus {
 
 class Repository {
 public:
+    Repository(const Repository&) = delete;
+    Repository& operator=(const Repository&) = delete;
+    Repository(Repository&& other) noexcept;
+    Repository& operator=(Repository&& other) = delete;
+
     static Repository init(std::filesystem::path root);
     static Repository open(std::filesystem::path root);
 
@@ -58,11 +65,18 @@ public:
     [[nodiscard]] const ContentStore& objects() const noexcept;
     [[nodiscard]] const RefStore& refs() const noexcept;
     [[nodiscard]] const WorldStore& runtime() const noexcept;
+    [[nodiscard]] const RepositoryEngine& backend() const noexcept;
+    [[nodiscard]] RepositoryBackendStats backend_stats() const;
+    [[nodiscard]] RepositoryIndexCheck check_indexes() const;
+    [[nodiscard]] RepositoryRecoveryReport recover();
+    void rebuild_indexes();
+    void compact();
+    [[nodiscard]] std::size_t materialized_branch_count() const noexcept;
 
 private:
     explicit Repository(std::filesystem::path root);
 
-    void load();
+    void ensure_materialized(std::string_view branch) const;
     void persist_record(
         std::string_view branch,
         const CommitRecord& record,
@@ -80,7 +94,8 @@ private:
     ContentStore objects_;
     RefStore refs_;
     Wal wal_;
-    WorldStore store_;
+    RepositoryEngine engine_;
+    mutable WorldStore store_;
 };
 
 }  // namespace pv

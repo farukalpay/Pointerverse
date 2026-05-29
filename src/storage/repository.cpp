@@ -13,18 +13,11 @@
 #include <nlohmann/json.hpp>
 
 #include "pv/hash/hasher.hpp"
+#include "pv/storage/lock_file.hpp"
+#include "pv/storage/repository_transaction.hpp"
 
 namespace pv {
 namespace {
-
-std::vector<std::byte> text_payload(std::string_view value) {
-    std::vector<std::byte> out;
-    out.reserve(value.size());
-    for (const auto ch : value) {
-        out.push_back(static_cast<std::byte>(static_cast<unsigned char>(ch)));
-    }
-    return out;
-}
 
 std::string first_world_name(std::string_view jsonl, std::string fallback) {
     std::istringstream input{std::string{jsonl}};
@@ -247,7 +240,17 @@ Repository::Repository(std::filesystem::path root)
       manifest_(root_),
       objects_(root_),
       refs_(root_),
-      wal_(root_) {}
+      wal_(root_),
+      engine_(root_, objects_, refs_, wal_) {}
+
+Repository::Repository(Repository&& other) noexcept
+    : root_(std::move(other.root_)),
+      manifest_(root_),
+      objects_(root_),
+      refs_(root_),
+      wal_(root_),
+      engine_(root_, objects_, refs_, wal_),
+      store_(std::move(other.store_)) {}
 
 Repository Repository::init(std::filesystem::path root) {
     std::filesystem::create_directories(root);
@@ -261,6 +264,7 @@ Repository Repository::init(std::filesystem::path root) {
     repo.manifest_.write(RepositoryManifest{});
     repo.refs_.set_current_branch("main");
     repo.wal_.truncate();
+    repo.engine_.rebuild_indexes();
     return repo;
 }
 
@@ -269,8 +273,8 @@ Repository Repository::open(std::filesystem::path root) {
     if (!repo.manifest_.exists()) {
         throw std::runtime_error("not a Pointerverse repository");
     }
-    (void)repo.wal_.recover();
-    repo.load();
+    repo.engine_.open();
+    (void)RepositoryRecovery{repo.root_, repo.engine_, repo.wal_}.recover(true);
     return repo;
 }
 
@@ -279,28 +283,43 @@ const std::filesystem::path& Repository::root() const noexcept {
 }
 
 RepositoryStatus Repository::status() const {
-    return RepositoryStatus{root_, refs_.current_branch(), refs_.list_branches().size()};
+    return RepositoryStatus{root_, refs_.current_branch(), engine_.list_branches().size()};
 }
 
 BranchId Repository::create_branch(std::string name, World initial) {
+    RepositoryWriteLock lock{root_};
+    if (engine_.has_branch(name)) {
+        throw std::invalid_argument(fmt::format("branch '{}' already exists", name));
+    }
     const auto id = store_.create_branch(name, std::move(initial));
     const auto history = store_.history(id);
     persist_record(store_.branch(id).name, history.back(), Delta{}, std::nullopt, {});
-    refs_.update_branch(branch_ref_from_runtime(store_.branch(id).name));
-    write_history(store_.branch(id).name, history);
     return id;
 }
 
 ForkResult Repository::fork(std::string_view source, std::string new_name) {
+    RepositoryWriteLock lock{root_};
     const auto source_id = require_branch(source);
-    const auto result = store_.fork(source_id, std::move(new_name));
+    std::uint64_t next_branch_id = 1;
+    for (const auto& ref : engine_.list_branches()) {
+        next_branch_id = std::max(next_branch_id, ref.branch.value + 1);
+    }
+    const auto result = store_.fork_with_id(source_id, BranchId{next_branch_id}, std::move(new_name));
     const auto& forked = store_.branch(result.forked);
-    refs_.update_branch(branch_ref_from_runtime(forked.name));
+    const auto ref = branch_ref_from_runtime(forked.name);
+    refs_.update_branch(ref);
+    std::vector<CommitId> history_ids;
+    for (const auto& record : store_.history(result.forked)) {
+        history_ids.push_back(record.id);
+    }
+    engine_.branches().upsert(BranchIndexEntry{ref.name, ref.branch, ref.head, ref.snapshot, ref.epoch, history_ids});
+    engine_.world_index().update_branch(ref.name, ref.snapshot, store_.world(result.forked).snapshot());
     write_history(forked.name, store_.history(result.forked));
     return result;
 }
 
 std::optional<CommitRecord> Repository::commit(std::string_view branch, Transaction tx, const Verifier& verifier) {
+    RepositoryWriteLock lock{root_};
     const auto branch_id = require_branch(branch);
     const auto record = store_.commit(branch_id, tx, verifier);
     if (!record.has_value()) {
@@ -308,10 +327,6 @@ std::optional<CommitRecord> Repository::commit(std::string_view branch, Transact
     }
 
     persist_record(branch, *record, tx.delta, tx.program, tx.morphism_path);
-    if (record->accepted) {
-        refs_.update_branch(branch_ref_from_runtime(branch));
-    }
-    write_history(branch, store_.history(branch_id));
     return record;
 }
 
@@ -320,7 +335,7 @@ RuntimeReplayResult Repository::replay_trace(std::string_view branch_name, std::
     if (branch.empty()) {
         branch = refs_.current_branch();
     }
-    if (!store_.find_branch(branch).has_value()) {
+    if (!engine_.has_branch(branch)) {
         (void)create_branch(branch, World{first_world_name(jsonl, "world")});
     }
 
@@ -406,27 +421,32 @@ MergeAnalysis Repository::analyze_merge(std::string_view left, std::string_view 
 }
 
 std::vector<BranchRef> Repository::list_branches() const {
-    return refs_.list_branches();
+    return engine_.list_branches();
 }
 
 bool Repository::has_branch(std::string_view name) const {
-    return store_.find_branch(name).has_value();
+    return engine_.has_branch(name);
 }
 
 std::vector<CommitRecord> Repository::history(std::string_view branch) const {
-    return store_.history(require_branch(branch));
+    return engine_.history(branch);
 }
 
 const World& Repository::world(std::string_view branch) const {
+    ensure_materialized(branch);
     return store_.world(require_branch(branch));
 }
 
 World& Repository::mutable_world(std::string_view branch) {
+    ensure_materialized(branch);
     return store_.mutable_world(require_branch(branch));
 }
 
 void Repository::checkout(std::string_view branch) {
-    (void)require_branch(branch);
+    RepositoryWriteLock lock{root_};
+    if (!engine_.has_branch(branch)) {
+        throw std::out_of_range(fmt::format("unknown branch '{}'", branch));
+    }
     refs_.set_current_branch(branch);
     auto manifest = manifest_.read();
     manifest.current_branch = std::string{branch};
@@ -453,37 +473,50 @@ const WorldStore& Repository::runtime() const noexcept {
     return store_;
 }
 
-void Repository::load() {
-    for (const auto& ref : refs_.list_branches()) {
-        std::vector<CommitRecord> history;
-        std::vector<std::pair<CommitId, WorldSnapshot>> snapshots;
-        for (const auto& id : read_history_ids(ref.name)) {
-            auto stored = objects_.get_canonical<StoredCommit>(id.value);
-            stored.record.id = id;
-            stored.record.events = objects_.get_canonical<std::vector<TraceEvent>>(stored.trace_object);
-            stored.record.law_statuses = objects_.get_canonical<std::vector<LawStatus>>(stored.law_status_object);
-            stored.record.violations = objects_.get_canonical<std::vector<LawViolation>>(stored.violation_object);
-            if (stored.record.accepted) {
-                snapshots.push_back({id, objects_.get_canonical<WorldSnapshot>(stored.after_snapshot_object)});
-            }
-            history.push_back(std::move(stored.record));
-        }
+const RepositoryEngine& Repository::backend() const noexcept {
+    return engine_;
+}
 
-        if (history.empty()) {
-            auto stored = objects_.get_canonical<StoredCommit>(ref.head.value);
-            stored.record.id = ref.head;
-            history.push_back(std::move(stored.record));
-            snapshots.push_back({ref.head, objects_.get_canonical<WorldSnapshot>(ref.snapshot)});
-        }
+RepositoryBackendStats Repository::backend_stats() const {
+    auto stats = engine_.stats();
+    stats.branches = engine_.list_branches().size();
+    return stats;
+}
 
-        auto head_snapshot = objects_.get_canonical<WorldSnapshot>(ref.snapshot);
-        (void)store_.restore_branch(
-            ref.branch,
-            ref.name,
-            World::from_snapshot(head_snapshot),
-            std::move(history),
-            std::move(snapshots));
+RepositoryIndexCheck Repository::check_indexes() const {
+    return engine_.check_indexes();
+}
+
+RepositoryRecoveryReport Repository::recover() {
+    RepositoryWriteLock lock{root_};
+    return RepositoryRecovery{root_, engine_, wal_}.recover(true);
+}
+
+void Repository::rebuild_indexes() {
+    RepositoryWriteLock lock{root_};
+    engine_.rebuild_indexes();
+}
+
+void Repository::compact() {
+    RepositoryWriteLock lock{root_};
+    engine_.compact();
+}
+
+std::size_t Repository::materialized_branch_count() const noexcept {
+    return store_.branch_count();
+}
+
+void Repository::ensure_materialized(std::string_view branch) const {
+    if (store_.find_branch(branch).has_value()) {
+        return;
     }
+    auto materialized = engine_.materialize_branch(branch);
+    (void)store_.restore_branch(
+        materialized.ref.branch,
+        materialized.ref.name,
+        std::move(materialized.world),
+        std::move(materialized.history),
+        std::move(materialized.snapshots));
 }
 
 void Repository::persist_record(
@@ -492,49 +525,34 @@ void Repository::persist_record(
     const Delta& delta,
     const std::optional<Program>& program,
     const std::vector<std::string>& morphism_path) {
-    const auto branch_id = require_branch(branch);
     const auto& snapshot_store = store_.snapshots();
     const auto before_snapshot = snapshot_store.get(record.before_snapshot);
     const auto after_snapshot = snapshot_store.get(record.after_snapshot);
-
-    auto stored = make_stored_commit(record);
-    wal_.append(WalOp::BeginCommit, text_payload(record.label));
-    stored.before_snapshot_object = objects_.put_canonical(before_snapshot);
-    wal_.append(WalOp::PutObject, stored.before_snapshot_object.value);
-    stored.after_snapshot_object = objects_.put_canonical(after_snapshot);
-    wal_.append(WalOp::PutObject, stored.after_snapshot_object.value);
-    stored.delta_object = objects_.put_canonical(delta);
-    wal_.append(WalOp::PutObject, stored.delta_object.value);
-    if (program.has_value()) {
-        stored.program_object = objects_.put_canonical(*program);
-        if (stored.program_object != record.program_hash) {
-            throw std::runtime_error("stored program hash does not match commit record");
-        }
-        wal_.append(WalOp::PutObject, stored.program_object.value);
+    std::vector<CommitId> history_ids;
+    for (const auto& item : store_.history(require_branch(branch))) {
+        history_ids.push_back(item.id);
     }
-    stored.trace_object = objects_.put_canonical(record.events);
-    wal_.append(WalOp::PutObject, stored.trace_object.value);
-    stored.law_status_object = objects_.put_canonical(record.law_statuses);
-    wal_.append(WalOp::PutObject, stored.law_status_object.value);
-    stored.violation_object = objects_.put_canonical(record.violations);
-    wal_.append(WalOp::PutObject, stored.violation_object.value);
-    stored.morphism_path_object = objects_.put_bytes(canonical_encode_morphism_path(morphism_path));
-    wal_.append(WalOp::PutObject, stored.morphism_path_object.value);
-
-    const auto commit_object = objects_.put_canonical(stored);
-    if (commit_object != record.id.value) {
-        throw std::runtime_error("stored commit hash does not match commit id");
-    }
-
-    if (record.accepted) {
-        wal_.append(WalOp::BindSnapshot, stored.after_snapshot_object.value);
-        wal_.append(WalOp::AddCommitNode, record.id.value.value);
-        refs_.update_branch(branch_ref_from_runtime(branch));
-        wal_.append(WalOp::UpdateBranchRef, text_payload(std::string{branch}));
-    }
-    wal_.append(WalOp::EndCommit, record.id.value.value);
-
-    (void)branch_id;
+    RepositoryCommitWrite write{
+        branch,
+        record,
+        delta,
+        program,
+        morphism_path,
+        before_snapshot,
+        after_snapshot,
+        record.accepted ? std::optional<BranchRef>{branch_ref_from_runtime(branch)} : std::nullopt,
+        std::move(history_ids)
+    };
+    (void)RepositoryTransactionWriter{
+        root_,
+        objects_,
+        refs_,
+        wal_,
+        engine_.commits(),
+        engine_.branches(),
+        engine_.world_index(),
+        engine_.events()
+    }.write_commit(write);
 }
 
 std::filesystem::path Repository::history_path(std::string_view branch) const {
@@ -581,6 +599,7 @@ std::vector<CommitId> Repository::read_history_ids(std::string_view branch) cons
 }
 
 BranchId Repository::require_branch(std::string_view name) const {
+    ensure_materialized(name);
     const auto id = store_.find_branch(name);
     if (!id.has_value()) {
         throw std::out_of_range(fmt::format("unknown branch '{}'", name));

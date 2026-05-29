@@ -207,8 +207,12 @@ IntegrityReport IntegrityChecker::check_repository(const Repository& repo) const
 
     std::set<std::string> known_commits;
     for (const auto& ref : repo.list_branches()) {
-        for (const auto& record : repo.history(ref.name)) {
-            known_commits.insert(to_hex(record.id.value));
+        try {
+            for (const auto& record : repo.history(ref.name)) {
+                known_commits.insert(to_hex(record.id.value));
+            }
+        } catch (const std::exception& error) {
+            add_error(report, "branch history cannot be loaded for " + ref.name + ": " + error.what());
         }
     }
 
@@ -224,8 +228,16 @@ IntegrityReport IntegrityChecker::check_repository(const Repository& repo) const
             add_error(report, "branch ref snapshot mismatch: " + ref.name);
         }
 
+        std::vector<CommitRecord> history;
+        try {
+            history = repo.history(ref.name);
+        } catch (const std::exception& error) {
+            add_error(report, "branch history cannot be verified for " + ref.name + ": " + error.what());
+            continue;
+        }
+
         std::optional<CommitId> latest_accepted;
-        for (const auto& record : repo.history(ref.name)) {
+        for (const auto& record : history) {
             if (record.accepted) {
                 latest_accepted = record.id;
             }

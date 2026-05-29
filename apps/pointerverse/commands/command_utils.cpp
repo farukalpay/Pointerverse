@@ -228,25 +228,26 @@ QueryResult run_query(const Repository& repository, std::string_view branch, con
     }
 
     const QueryEngine query;
-    const auto snapshot = repository.world(branch).snapshot();
+    const RepositoryQueryEngine repository_query;
+    const auto snapshot = repository.backend().snapshot(branch);
     if (terms[0] == "objects" && terms.size() == 3 && terms[1] == "type") {
-        return query.objects_by_type(snapshot, terms[2]);
+        return repository_query.objects_by_type(repository, branch, terms[2]);
     }
     if (terms[0] == "objects" && terms.size() == 3 && terms[1] == "name") {
-        return query.objects_by_name(snapshot, terms[2]);
+        return repository_query.objects_by_name(repository, branch, terms[2]);
     }
     if (terms[0] == "links" && terms.size() == 3 && terms[1] == "relation") {
-        return query.links_by_relation(snapshot, terms[2]);
+        return repository_query.links_by_relation(repository, branch, terms[2]);
     }
     if (terms[0] == "commits" && terms.size() == 4 && terms[1] == "touching" && terms[2] == "object") {
         const auto* object = object_by_name(snapshot, terms[3]);
         if (object == nullptr) {
             return {};
         }
-        return query.commits_touching_object(repository, branch, object->id);
+        return repository_query.commits_touching_object(repository, branch, object->id);
     }
     if (terms[0] == "events" && terms.size() == 3 && terms[1] == "name") {
-        return query.events_by_name(repository, branch, terms[2]);
+        return repository_query.events_by_name(repository, branch, terms[2]);
     }
     if (terms[0] == "cone" && terms.size() >= 3 && terms[1] == "object") {
         const auto* object = object_by_name(snapshot, terms[2]);

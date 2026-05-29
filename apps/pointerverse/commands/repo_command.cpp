@@ -35,6 +35,22 @@ public:
 
         status_ = repo->add_subcommand("status", "Show repository status");
 
+        stats_ = repo->add_subcommand("stats", "Show repository backend statistics");
+        stats_->add_option("path", stats_path_, "Repository path; defaults to --store");
+
+        recover_ = repo->add_subcommand("recover", "Recover repository WAL and indexes");
+        recover_->add_option("path", recover_path_, "Repository path; defaults to --store");
+
+        compact_ = repo->add_subcommand("compact", "Compact repository backend metadata");
+        compact_->add_option("path", compact_path_, "Repository path; defaults to --store");
+
+        index_cmd_ = repo->add_subcommand("index", "Repository index commands");
+        index_cmd_->require_subcommand(1);
+        index_check_ = index_cmd_->add_subcommand("check", "Check persistent repository indexes");
+        index_check_->add_option("path", index_path_, "Repository path; defaults to --store");
+        index_rebuild_ = index_cmd_->add_subcommand("rebuild", "Rebuild persistent repository indexes");
+        index_rebuild_->add_option("path", index_path_, "Repository path; defaults to --store");
+
         commit_ = repo->add_subcommand("commit", "Replay and commit a JSONL trace");
         commit_->add_option("trace", trace_path_, "Path to a JSONL trace")->required();
         commit_->add_option("--branch", branch_, "Branch to commit into; defaults to current branch");
@@ -105,6 +121,77 @@ public:
                 return EXIT_SUCCESS;
             });
         }
+        if (stats_->parsed()) {
+            return run_checked([&] {
+                const auto repository = Repository::open(resolve_repo_path(stats_path_));
+                const auto stats = repository.backend_stats();
+                std::cout << "Repository backend\n";
+                std::cout << "------------------\n";
+                std::cout << fmt::format("objects:          {}\n", stats.objects);
+                std::cout << fmt::format("commits:          {}\n", stats.commits);
+                std::cout << fmt::format("branches:         {}\n", stats.branches);
+                std::cout << fmt::format("snapshots:        {}\n", stats.snapshots);
+                std::cout << fmt::format("program objects:  {}\n", stats.program_objects);
+                std::cout << fmt::format("delta objects:    {}\n", stats.delta_objects);
+                std::cout << fmt::format("index status:     {}\n", stats.index_status);
+                std::cout << fmt::format("wal status:       {}\n", stats.wal_status);
+                std::cout << fmt::format("materialized:     {} branch\n", repository.materialized_branch_count());
+                return EXIT_SUCCESS;
+            });
+        }
+        if (recover_->parsed()) {
+            return run_checked([&] {
+                auto repository = Repository::open(resolve_repo_path(recover_path_));
+                const auto report = repository.recover();
+                std::cout << "Repository recovery\n";
+                std::cout << "-------------------\n";
+                std::cout << fmt::format("wal entries:      {}\n", report.wal_entries);
+                std::cout << fmt::format("wal status:       {}\n", report.incomplete_wal ? "incomplete" : "clean");
+                std::cout << fmt::format("repaired:         {}\n", report.repaired ? "yes" : "no");
+                for (const auto& action : report.actions) {
+                    std::cout << fmt::format("action: {}\n", action);
+                }
+                return EXIT_SUCCESS;
+            });
+        }
+        if (compact_->parsed()) {
+            return run_checked([&] {
+                auto repository = Repository::open(resolve_repo_path(compact_path_));
+                repository.compact();
+                const auto report = IntegrityChecker{}.check_repository(repository);
+                print_integrity_report(report);
+                return report.clean() ? EXIT_SUCCESS : EXIT_FAILURE;
+            });
+        }
+        if (index_check_->parsed()) {
+            return run_checked([&] {
+                const auto repository = Repository::open(resolve_repo_path(index_path_));
+                const auto report = repository.check_indexes();
+                std::cout << "Repository index check\n";
+                std::cout << "----------------------\n";
+                std::cout << fmt::format("status:          {}\n", report.clean ? "clean" : "dirty");
+                std::cout << fmt::format("commits:         {}\n", to_hex(report.commits_checksum).substr(0, 12));
+                std::cout << fmt::format("branches:        {}\n", to_hex(report.branches_checksum).substr(0, 12));
+                std::cout << fmt::format("events:          {}\n", to_hex(report.events_checksum).substr(0, 12));
+                std::cout << fmt::format("objects:         {}\n", to_hex(report.objects_checksum).substr(0, 12));
+                std::cout << fmt::format("relations:       {}\n", to_hex(report.relations_checksum).substr(0, 12));
+                for (const auto& message : report.messages) {
+                    std::cout << fmt::format("issue: {}\n", message);
+                }
+                return report.clean ? EXIT_SUCCESS : EXIT_FAILURE;
+            });
+        }
+        if (index_rebuild_->parsed()) {
+            return run_checked([&] {
+                auto repository = Repository::open(resolve_repo_path(index_path_));
+                repository.rebuild_indexes();
+                const auto report = repository.check_indexes();
+                std::cout << "Repository index rebuild\n";
+                std::cout << "------------------------\n";
+                std::cout << fmt::format("status:          {}\n", report.clean ? "clean" : "dirty");
+                return report.clean ? EXIT_SUCCESS : EXIT_FAILURE;
+            });
+        }
         if (commit_->parsed()) {
             return run_checked([&] {
                 auto repository = Repository::open(repo_path_);
@@ -144,14 +231,14 @@ public:
             return run_checked([&] {
                 const auto repository = Repository::open(repo_path_);
                 const auto result = run_query(repository, query_branch_, query_terms_);
-                print_query_result(repository.world(query_branch_).snapshot(), result);
+                print_query_result(repository.backend().snapshot(query_branch_), result);
                 return EXIT_SUCCESS;
             });
         }
         if (query_file_->parsed()) {
             return run_checked([&] {
                 const auto repository = Repository::open(repo_path_);
-                const auto snapshot = repository.world(query_file_branch_).snapshot();
+                const auto snapshot = repository.backend().snapshot(query_file_branch_);
                 std::ifstream input(query_file_path_);
                 if (!input) {
                     throw std::runtime_error(fmt::format("cannot open query file '{}'", query_file_path_));
@@ -309,8 +396,18 @@ public:
     }
 
 private:
+    [[nodiscard]] std::string resolve_repo_path(const std::string& path) const {
+        return path.empty() ? repo_path_ : path;
+    }
+
     CLI::App* init_{nullptr};
     CLI::App* status_{nullptr};
+    CLI::App* stats_{nullptr};
+    CLI::App* recover_{nullptr};
+    CLI::App* compact_{nullptr};
+    CLI::App* index_cmd_{nullptr};
+    CLI::App* index_check_{nullptr};
+    CLI::App* index_rebuild_{nullptr};
     CLI::App* commit_{nullptr};
     CLI::App* run_{nullptr};
     CLI::App* repl_{nullptr};
@@ -329,6 +426,10 @@ private:
 
     std::string repo_path_{".pvstore"};
     std::string init_path_{".pvstore"};
+    std::string stats_path_;
+    std::string recover_path_;
+    std::string compact_path_;
+    std::string index_path_;
     std::string trace_path_;
     std::string branch_;
     std::string run_script_;

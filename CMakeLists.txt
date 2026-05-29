@@ -82,13 +82,21 @@ pointerverse_configure_target(pointerverse_runtime)
 target_link_libraries(pointerverse_runtime PUBLIC pointerverse_kernel)
 
 add_library(pointerverse_storage
+    src/storage/commit_index.cpp
     src/storage/content_store.cpp
+    src/storage/event_index.cpp
+    src/storage/index_store.cpp
     src/storage/integrity.cpp
+    src/storage/lock_file.cpp
     src/storage/manifest.cpp
     src/storage/object_codec.cpp
+    src/storage/recovery.cpp
     src/storage/ref_store.cpp
+    src/storage/repository_engine.cpp
     src/storage/repository.cpp
+    src/storage/repository_transaction.cpp
     src/storage/wal.cpp
+    src/storage/world_index_store.cpp
 )
 pointerverse_configure_target(pointerverse_storage)
 target_link_libraries(pointerverse_storage PUBLIC pointerverse_runtime)
@@ -258,6 +266,7 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/audit/report_tests.cpp
         tests/law/law_tests.cpp
         tests/query/query_tests.cpp
+        tests/query/repository_query_tests.cpp
         tests/rule/rule_engine_tests.cpp
         tests/runtime/branch_tests.cpp
         tests/runtime/transaction_tests.cpp
@@ -269,6 +278,10 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/storage/codec_tests.cpp
         tests/storage/content_store_tests.cpp
         tests/storage/integrity_tests.cpp
+        tests/storage/lazy_load_tests.cpp
+        tests/storage/repository_index_tests.cpp
+        tests/storage/repository_lock_tests.cpp
+        tests/storage/repository_recovery_tests.cpp
         tests/storage/repository_tests.cpp
         tests/storage/wal_tests.cpp
         tests/trace/replay_tests.cpp

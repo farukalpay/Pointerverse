@@ -28,6 +28,7 @@ public:
         std::vector<std::pair<CommitId, WorldSnapshot>> snapshots);
     [[nodiscard]] BranchId fork_branch(BranchId source, std::string new_name);
     [[nodiscard]] ForkResult fork(BranchId source, std::string new_name);
+    [[nodiscard]] ForkResult fork_with_id(BranchId source, BranchId forked_id, std::string new_name);
 
     [[nodiscard]] const World& world(BranchId branch) const;
     [[nodiscard]] World& mutable_world(BranchId branch);
@@ -38,6 +39,7 @@ public:
     [[nodiscard]] std::vector<CommitRecord> history(BranchId branch) const;
     [[nodiscard]] const CommitRecord* commit_record(CommitId id) const noexcept;
     [[nodiscard]] MergeAnalysis analyze_merge(BranchId left, BranchId right) const;
+    [[nodiscard]] std::size_t branch_count() const noexcept;
 
     [[nodiscard]] const CommitGraph& graph() const noexcept;
     [[nodiscard]] const SnapshotStore& snapshots() const noexcept;

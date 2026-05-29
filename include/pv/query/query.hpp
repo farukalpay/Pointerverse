@@ -47,4 +47,28 @@ public:
         std::string_view event_name) const;
 };
 
+class RepositoryQueryEngine {
+public:
+    [[nodiscard]] QueryResult objects_by_type(
+        const Repository& repository,
+        std::string_view branch,
+        std::string_view type) const;
+    [[nodiscard]] QueryResult objects_by_name(
+        const Repository& repository,
+        std::string_view branch,
+        std::string_view name) const;
+    [[nodiscard]] QueryResult links_by_relation(
+        const Repository& repository,
+        std::string_view branch,
+        std::string_view relation) const;
+    [[nodiscard]] QueryResult commits_touching_object(
+        const Repository& repository,
+        std::string_view branch,
+        ObjectId object) const;
+    [[nodiscard]] QueryResult events_by_name(
+        const Repository& repository,
+        std::string_view branch,
+        std::string_view event_name) const;
+};
+
 }  // namespace pv
