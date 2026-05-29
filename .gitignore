@@ -1,8 +1,14 @@
+# Build output
 build/
+compile_commands.json
+
+# Pointerverse runtime stores
 .pvstore/
-.empire/
+.pack-store/
+.kernel_stress*/
+
+# OS and editor files
 .DS_Store
 *.user
 *.swp
 *.swo
-compile_commands.json

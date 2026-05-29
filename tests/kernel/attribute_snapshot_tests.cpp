@@ -14,7 +14,7 @@ namespace {
 
 std::filesystem::path temp_repo_path(std::string_view name) {
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    auto path = std::filesystem::temp_directory_path() / ("pointerverse_m7_" + std::string{name} + "_" + std::to_string(stamp));
+    auto path = std::filesystem::temp_directory_path() / ("pointerverse_attr_" + std::string{name} + "_" + std::to_string(stamp));
     std::filesystem::remove_all(path);
     return path;
 }

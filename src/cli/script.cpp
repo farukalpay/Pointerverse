@@ -5,6 +5,7 @@
 #include <cctype>
 #include <fstream>
 #include <fmt/format.h>
+#include <initializer_list>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
@@ -13,6 +14,8 @@
 
 #include "pv/category/composition.hpp"
 #include "pv/compiler/script_compiler.hpp"
+#include "pv/core/attribute.hpp"
+#include "pv/core/value.hpp"
 #include "pv/domain/domain.hpp"
 #include "pv/hash/canonical.hpp"
 #include "pv/kernel/vm.hpp"
@@ -73,6 +76,66 @@ std::string string_option(
     return fallback;
 }
 
+// Infer a typed attribute value from script text: integers become Int64/UInt64,
+// decimals become Float64, "true"/"false" become Bool, everything else (dates
+// like 1526-08-29, names, codes) stays a String.
+Value parse_attribute_value(const std::string& text) {
+    if (text == "true") {
+        return bool_value(true);
+    }
+    if (text == "false") {
+        return bool_value(false);
+    }
+
+    const bool negative = !text.empty() && text.front() == '-';
+    const std::size_t digits_begin = negative ? 1U : 0U;
+    bool all_digits = digits_begin < text.size();
+    for (std::size_t index = digits_begin; index < text.size(); ++index) {
+        if (std::isdigit(static_cast<unsigned char>(text[index])) == 0) {
+            all_digits = false;
+            break;
+        }
+    }
+    if (all_digits) {
+        try {
+            return negative ? int64_value(std::stoll(text))
+                            : uint64_value(std::stoull(text));
+        } catch (const std::exception&) {
+            // Out of range: fall through and keep the original text.
+        }
+    }
+
+    if (text.find('.') != std::string::npos) {
+        try {
+            std::size_t consumed = 0;
+            const double parsed = std::stod(text, &consumed);
+            if (consumed == text.size()) {
+                return float64_value(parsed);
+            }
+        } catch (const std::exception&) {
+            // Not a float literal: keep the original text.
+        }
+    }
+
+    return string_value(text);
+}
+
+// Turn trailing key=value options into typed attributes, skipping any keys the
+// command already consumed (for example weight/role on a link).
+std::vector<Attribute> attributes_from_options(
+    const std::unordered_map<std::string, std::string>& options,
+    std::initializer_list<std::string_view> reserved) {
+    std::vector<Attribute> attributes;
+    for (const auto& [key, value] : options) {
+        if (std::find(reserved.begin(), reserved.end(), key) != reserved.end()) {
+            continue;
+        }
+        attributes.push_back(Attribute{key, parse_attribute_value(value)});
+    }
+    sort_attributes(attributes);
+    return attributes;
+}
+
 CommitResult result_from_record(const CommitRecord& record) {
     CommitResult result;
     result.accepted = record.accepted;
@@ -111,7 +174,8 @@ bool print_commit(std::ostream& output, const CommitResult& result) {
 }
 
 bool is_rule_command(std::string_view command) noexcept {
-    return command == "rule" || command == "when" || command == "require" || command == "deny";
+    return command == "rule" || command == "when" || command == "require" || command == "forbid"
+        || command == "deny";
 }
 
 std::vector<std::string> morphism_path_from_events(const std::vector<TraceEvent>& events, std::string_view fallback) {
@@ -347,10 +411,15 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
                 return true;
             }
             if (subcommand == "load" && !name_or_path.empty()) {
-                const auto rules = parse_rules(read_file(name_or_path));
-                const auto count = rules.size();
-                rule_engine_.add_all(rules);
-                output << fmt::format("=> domain file {} loaded rules={}\n", name_or_path, count);
+                const auto package = parse_domain_package(read_file(name_or_path));
+                install_domain_schema(world, package);
+                rule_engine_.add_all(package.rules);
+                output << fmt::format(
+                    "=> domain file {} loaded types={} relations={} rules={}\n",
+                    name_or_path,
+                    package.schema.object_types.size(),
+                    package.schema.relations.size(),
+                    package.rules.size());
                 return true;
             }
             throw std::invalid_argument("usage: domain use NAME | domain load PATH");
@@ -362,12 +431,13 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             std::string type;
             stream >> name >> colon >> type;
             if (name.empty() || colon != ":" || type.empty()) {
-                throw std::invalid_argument("usage: object NAME : TYPE");
+                throw std::invalid_argument("usage: object NAME : TYPE [key=value ...]");
             }
+            const auto attributes = attributes_from_options(parse_options(stream), {});
 
             auto tx = transaction_from_program(
                 world.snapshot(),
-                ScriptCompiler{}.compile_object(world.snapshot(), name, type),
+                ScriptCompiler{}.compile_object(world.snapshot(), name, type, attributes),
                 TransactionOrigin::Script,
                 fmt::format("object {} : {}", name, type));
             const auto result = sink_->commit(std::move(tx));
@@ -386,14 +456,15 @@ bool ScriptEngine::execute_line(const std::string& raw_line, std::ostream& outpu
             std::string relation;
             stream >> from >> arrow >> to >> colon >> relation;
             if (from.empty() || arrow != "->" || to.empty() || colon != ":" || relation.empty()) {
-                throw std::invalid_argument("usage: link FROM -> TO : RELATION [weight=1.0] [role=Structural]");
+                throw std::invalid_argument("usage: link FROM -> TO : RELATION [weight=1.0] [role=Structural] [key=value ...]");
             }
             const auto options = parse_options(stream);
             const auto role = causal_role_from_string(string_option(options, "role", string_option(options, "causal_role", "Structural")));
+            const auto attributes = attributes_from_options(options, {"weight", "role", "causal_role"});
 
             auto tx = transaction_from_program(
                 world.snapshot(),
-                ScriptCompiler{}.compile_link(world.snapshot(), from, to, relation, double_option(options, "weight", 1.0), role),
+                ScriptCompiler{}.compile_link(world.snapshot(), from, to, relation, double_option(options, "weight", 1.0), role, attributes),
                 TransactionOrigin::Script,
                 fmt::format("link {} -> {} : {}", from, to, relation));
             const auto result = sink_->commit(std::move(tx));

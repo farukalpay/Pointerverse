@@ -1,0 +1,40 @@
+# Mohács campaign domain: a reusable package of schema and rules.
+# Loaded with `domain load`; the schema interns the campaign vocabulary and the
+# rule encodes the decision the Hungarian war council faced on 29 August 1526.
+
+domain mohacs
+
+type Sultan
+type King
+type Commander
+type RoyalArmy
+type Army
+type Corps
+type Cavalry
+type Artillery
+type Battlefield
+type Kingdom
+type Province
+type River
+
+relation commands
+relation leads
+relation reinforces
+relation reinforced
+relation deploys
+relation gives_battle
+relation charges
+relation breaks
+relation encircles
+relation routs
+relation defeats
+relation rules
+relation marches_to
+
+# A royal army must not give battle before its reinforcements have joined it on
+# the field. This is the choice made at Mohács: the council engaged before the
+# Transylvanian and Croatian armies arrived.
+rule no_battle_before_reinforcements
+when link RoyalArmy -> Battlefield : gives_battle
+require before link RoyalArmy -> Battlefield : reinforced
+deny reason "{from} gives battle at {to} before its reinforcements have joined"

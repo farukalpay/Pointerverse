@@ -24,7 +24,8 @@ Projection Observer::inspect_object(const WorldSnapshot& snapshot, ObjectId id) 
     projection.measurements.emplace("incoming", static_cast<double>(object->incoming_count));
     projection.measurements.emplace("outgoing", static_cast<double>(object->outgoing_count));
 
-    projection.body = fmt::format(
+    std::ostringstream body;
+    body << fmt::format(
         "object {}\n  id: {}\n  type: {}\n  existence: {}\n  incoming: {}\n  outgoing: {}",
         object->name,
         to_string(object->id),
@@ -32,6 +33,13 @@ Projection Observer::inspect_object(const WorldSnapshot& snapshot, ObjectId id) 
         to_string(object->existence),
         object->incoming_count,
         object->outgoing_count);
+    if (!object->attributes.empty()) {
+        body << "\n  attributes:";
+        for (const auto& attribute : object->attributes) {
+            body << fmt::format("\n    {} = {}", attribute.key, to_string(attribute.value));
+        }
+    }
+    projection.body = body.str();
     return projection;
 }
 

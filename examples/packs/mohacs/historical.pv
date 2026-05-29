@@ -1,0 +1,26 @@
+# The historical fork: 29 August 1526, as it happened.
+#
+# The war council gives battle without waiting for the relief armies. The law
+# no_battle_before_reinforcements is active, so the engine flags that decision
+# the moment it is committed - the same mistake the chroniclers recorded.
+# The rest of the afternoon then plays out on the record.
+
+domain load examples/packs/mohacs/mohacs_rules.pvdomain
+law add no_battle_before_reinforcements
+
+# The fatal decision: give battle with the relief armies still on the road.
+link HungarianArmy -> Mohacs_Field : gives_battle weight=1.0 role=Generative date=1526-08-29
+
+# The afternoon, in order.
+link HungarianCavalry -> OttomanArmy : charges weight=0.9 role=Generative
+link OttomanArtillery -> HungarianCavalry : breaks weight=0.95 role=Inhibitory
+link Gazi_Bali_Bey -> HungarianArmy : encircles weight=0.9 role=Generative
+link OttomanArmy -> HungarianArmy : routs weight=1.0 role=Generative casualties=14000
+link OttomanArmy -> Louis_II : defeats weight=1.0 role=Generative date=1526-08-29
+
+object Csele_Stream : River
+link Louis_II -> Csele_Stream : drowns_in weight=1.0 role=Generative
+link OttomanArmy -> Buda : advances weight=0.9 role=Generative
+
+evolve 2
+inspect object Louis_II

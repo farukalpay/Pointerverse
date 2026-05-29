@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -40,5 +41,14 @@ public:
 [[nodiscard]] std::string render_audit_report_text(const AuditReport& report);
 [[nodiscard]] std::string render_audit_report_json(const AuditReport& report);
 [[nodiscard]] std::string render_audit_violations_text(const AuditReport& report);
+
+// Earliest commit on the branch that recorded a violation of the named law,
+// or nullopt if the law never broke. "Earliest" is the smallest epoch, which
+// is order-independent because each commit advances the epoch.
+[[nodiscard]] std::optional<AuditViolation> first_violation(const AuditReport& report, std::string_view law);
+[[nodiscard]] std::string render_first_break_text(
+    std::string_view branch,
+    std::string_view law,
+    const std::optional<AuditViolation>& violation);
 
 }  // namespace pv

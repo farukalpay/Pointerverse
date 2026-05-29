@@ -1,5 +1,5 @@
-id = "empire"
-title = "Fork an empire into competing histories"
+id = "mohacs"
+title = "Fork the Battle of Mohács into two afternoons"
 surface = "realms"
 entry = "world.pv"
 runner = "run.sh"

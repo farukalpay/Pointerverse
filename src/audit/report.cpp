@@ -5,8 +5,10 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <optional>
 #include <set>
 #include <sstream>
+#include <string_view>
 
 #include "pv/audit/risk_score.hpp"
 #include "pv/hash/canonical.hpp"
@@ -93,6 +95,46 @@ std::string render_audit_report_text(const AuditReport& report) {
             }
             output << '\n';
         }
+    }
+    return output.str();
+}
+
+std::optional<AuditViolation> first_violation(const AuditReport& report, std::string_view law) {
+    const AuditViolation* earliest = nullptr;
+    for (const auto& violation : report.violations) {
+        if (violation.law != law) {
+            continue;
+        }
+        if (earliest == nullptr || violation.epoch.value < earliest->epoch.value) {
+            earliest = &violation;
+        }
+    }
+    if (earliest == nullptr) {
+        return std::nullopt;
+    }
+    return *earliest;
+}
+
+std::string render_first_break_text(
+    std::string_view branch,
+    std::string_view law,
+    const std::optional<AuditViolation>& violation) {
+    std::ostringstream output;
+    output << fmt::format("first-broke: law {} on branch {}\n", law, branch);
+    if (!violation.has_value()) {
+        output << "  never broke on this branch\n";
+        return output.str();
+    }
+    output << fmt::format(
+        "  first broke at epoch {} commit {}\n", violation->epoch.value, short_hash(violation->commit));
+    output << fmt::format("  severity: {}\n", violation->severity);
+    output << fmt::format("  {}\n", violation->explanation);
+    if (!violation->objects.empty()) {
+        output << "  objects:";
+        for (const auto& object : violation->objects) {
+            output << ' ' << object;
+        }
+        output << '\n';
     }
     return output.str();
 }

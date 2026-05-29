@@ -14,4 +14,5 @@
 
 `Trace`: A replayable JSONL event stream of committed and rejected transitions.
 
-`Realm`: A future symbolic layer built above the core, not a core primitive.
+`Realm`: A world built and forked on the engine rather than a core primitive;
+it ships today as the Mohács campaign demo pack.

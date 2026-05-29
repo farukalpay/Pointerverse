@@ -100,5 +100,12 @@ TEST_CASE("repository branch fork and compare survive reopen") {
     REQUIRE(analysis.status == MergeStatus::Conflict);
     REQUIRE(analysis.object_conflicts.size() == 1);
     REQUIRE(analysis.object_conflicts.front().reason == "object type diverged");
+
+    // Each branch added one commit past the fork: those are the first causally
+    // relevant commits on each side, and they are distinct.
+    REQUIRE(analysis.left_divergence.commit.has_value());
+    REQUIRE(analysis.right_divergence.commit.has_value());
+    REQUIRE(analysis.left_divergence.commit != analysis.right_divergence.commit);
+    REQUIRE_FALSE(analysis.left_divergence.label.empty());
     std::filesystem::remove_all(root);
 }

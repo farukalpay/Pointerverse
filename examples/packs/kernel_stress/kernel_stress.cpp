@@ -146,7 +146,7 @@ int main(int argc, char** argv) {
         const auto report = IntegrityChecker{}.check_repository(reopened);
         require(report.clean(), "reopened repository failed fsck");
 
-        std::cout << "Pointerverse M7 kernel stress\n";
+        std::cout << "Pointerverse kernel stress\n";
         std::cout << fmt::format("objects: {}\n", snapshot.objects.size());
         std::cout << fmt::format("pointers: {}\n", snapshot.pointers.size());
         std::cout << fmt::format("facts: {}\n", snapshot.facts.size());

@@ -7,8 +7,42 @@
 
 #include "pv/cli/script.hpp"
 #include "pv/domain/agent_audit.hpp"
+#include "pv/domain/package.hpp"
 
 using namespace pv;
+
+TEST_CASE("domain package file parses schema and rules together") {
+    const auto package = parse_domain_package(
+        "domain succession\n"
+        "type Crown\n"
+        "type Claimant\n"
+        "relation claims\n"
+        "relation bloodline\n"
+        "\n"
+        "rule no_claim_without_bloodline\n"
+        "when link Claimant -> Crown : claims\n"
+        "require before link Claimant -> Crown : bloodline\n"
+        "deny reason \"{from} claims {to} without bloodline continuity\"\n");
+
+    REQUIRE(package.name == "succession");
+    REQUIRE(package.schema.object_types.size() == 2);
+    REQUIRE(package.schema.relations.size() == 2);
+    REQUIRE(package.rules.size() == 1);
+    REQUIRE(package.rules.front().name == "no_claim_without_bloodline");
+}
+
+TEST_CASE("rule-only domain files parse to an empty schema") {
+    const auto package = parse_domain_package(
+        "rule no_rebellion_without_grievance\n"
+        "when link House -> Crown : rebels\n"
+        "require before link House -> Crown : grievance\n"
+        "deny reason \"{from} rebels against {to} without recorded grievance\"\n");
+
+    REQUIRE(package.name.empty());
+    REQUIRE(package.schema.object_types.empty());
+    REQUIRE(package.schema.relations.empty());
+    REQUIRE(package.rules.size() == 1);
+}
 
 TEST_CASE("agent audit domain exposes schema and built-in rule package") {
     const auto package = make_agent_audit_domain();

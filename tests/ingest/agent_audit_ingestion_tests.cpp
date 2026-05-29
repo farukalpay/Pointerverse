@@ -5,7 +5,9 @@
 #include <filesystem>
 #include <sstream>
 
+#include "pv/core/value.hpp"
 #include "pv/ingest/agent_audit_adapter.hpp"
+#include "pv/ingest/graph_log_importer.hpp"
 #include "pv/ingest/ingestion_index.hpp"
 #include "pv/ingest/ingestion_pipeline.hpp"
 #include "pv/ingest/jsonl_adapter.hpp"
@@ -103,6 +105,49 @@ TEST_CASE("agent audit ingestion accepts observe violations and skips duplicate 
     REQUIRE(query.links_by_relation(snapshot, "reads").pointers.size() == 1);
     REQUIRE(query.links_by_relation(snapshot, "modifies").pointers.size() == 1);
     REQUIRE(query.links_by_relation(snapshot, "backs").pointers.size() == 3);
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("graph-log importer builds a typed world from a generic event stream") {
+    const auto root = temp_repo_path("graphlog");
+    auto repository = Repository::init(root);
+
+    std::istringstream input{
+        "{\"id\":\"e1\",\"from\":\"Suleiman_I\",\"from_type\":\"Sultan\",\"to\":\"OttomanArmy\",\"to_type\":\"Army\",\"relation\":\"commands\",\"troops\":50000}\n"
+        "{\"id\":\"e2\",\"from\":\"OttomanArmy\",\"from_type\":\"Army\",\"to\":\"Louis_II\",\"to_type\":\"King\",\"relation\":\"defeats\",\"role\":\"Generative\"}\n"
+        "{\"id\":\"e1\",\"from\":\"dup\",\"to\":\"dup\",\"relation\":\"dup\"}\n"
+    };
+
+    IngestionIndex index{repository.root()};
+    IngestionOptions options;
+    options.branch = "main";
+    options.mode = VerificationMode::Observe;
+    const auto result = GraphLogImporter{repository}.import(input, index, options);
+
+    REQUIRE(result.events_read == 3);
+    REQUIRE(result.accepted == 2);
+    REQUIRE(result.skipped_duplicates == 1);
+    REQUIRE(result.errors == 0);
+
+    const auto snapshot = repository.world("main").snapshot();
+    const QueryEngine query;
+    REQUIRE(query.objects_by_type(snapshot, "Sultan").objects.size() == 1);
+    REQUIRE(query.objects_by_type(snapshot, "Army").objects.size() == 1);
+    REQUIRE(query.links_by_relation(snapshot, "defeats").pointers.size() == 1);
+
+    // An extra scalar field on the event rides along as a typed pointer attribute.
+    const auto commands = query.links_by_relation(snapshot, "commands");
+    REQUIRE(commands.pointers.size() == 1);
+    const auto* pointer = snapshot.pointer(commands.pointers.front());
+    REQUIRE(pointer != nullptr);
+    bool troops_present = false;
+    for (const auto& attribute : pointer->attributes) {
+        if (attribute.key == "troops") {
+            troops_present = attribute.value.kind == ValueKind::UInt64;
+        }
+    }
+    REQUIRE(troops_present);
 
     std::filesystem::remove_all(root);
 }

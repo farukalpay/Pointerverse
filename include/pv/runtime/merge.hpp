@@ -44,10 +44,19 @@ struct LawDrift {
     Hash256 right_law_hash;
 };
 
+// The first commit on a branch after the common ancestor: where this branch
+// began to diverge, and therefore the first causally relevant change on its side.
+struct DivergencePoint {
+    std::optional<CommitId> commit;
+    std::string label;
+};
+
 struct MergeAnalysis {
     BranchId left;
     BranchId right;
     std::optional<CommitId> common_ancestor;
+    DivergencePoint left_divergence;
+    DivergencePoint right_divergence;
     std::vector<ObjectConflict> object_conflicts;
     std::vector<PointerConflict> pointer_conflicts;
     std::vector<LawViolation> predicted_violations;

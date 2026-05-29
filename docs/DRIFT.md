@@ -1,16 +1,20 @@
-# Drift Boundary
+# Design boundary
 
-Pointerverse should remain a lawful transformation kernel before it becomes an
-inner-world or symbolic simulator.
+What makes a Pointerverse world provable is that everything in it is measured.
+Narrative is welcome as a reading of a world; it never substitutes for the
+mechanics that produce one. A symbolic or inner-world layer can be built on top
+of the kernel, but it earns its place the way every layer does: by emitting
+typed deltas, passing the verifier, and leaving trace events.
 
-Core code may define symbolic relation roles, but it must not assign mythic or
-narrative behavior to them. A symbolic layer can exist later only by producing
-deltas, passing verification, and writing trace events like every other layer.
+The boundary, stated as the engine keeps it:
 
-Red flags:
+- Laws and measurements decide transitions; lore names never stand in for them.
+- The world changes only through a committed, verified delta, never by direct
+  mutation.
+- Observers read projections, not privileged internal state.
+- A generated story is a view over committed facts, not behavior in itself.
+- `include/pv/core` stays free of pressure, region, or continuity behavior;
+  those belong to layers above it.
 
-- lore terms replacing laws or measurements
-- direct world mutation outside delta commit
-- observers reading privileged internal state instead of projections
-- generated stories presented as model behavior
-- pressure, region, or mythic continuity code inside `include/pv/core`
+This is not a limit on imagination. It is what lets a world as large as a private
+archive stay replayable, forkable, and verifiable.

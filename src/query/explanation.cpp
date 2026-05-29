@@ -4,9 +4,17 @@
 #include <fmt/format.h>
 
 #include <sstream>
+#include <unordered_map>
+#include <vector>
 
+#include "pv/core/delta.hpp"
+#include "pv/core/operation.hpp"
+#include "pv/core/value.hpp"
 #include "pv/hash/canonical.hpp"
+#include "pv/law/law.hpp"
 #include "pv/query/query.hpp"
+#include "pv/storage/content_store.hpp"
+#include "pv/storage/object_codec.hpp"
 #include "pv/storage/repository.hpp"
 
 namespace pv {
@@ -39,6 +47,123 @@ const CommitRecord* commit_by_prefix(const Repository& repository, std::string_v
 
 bool active_at(const PointerSnapshot& pointer, Epoch epoch) noexcept {
     return pointer.born_at <= epoch && (!pointer.expires_at.has_value() || epoch < *pointer.expires_at);
+}
+
+std::string ref_name(
+    const WorldSnapshot& snapshot,
+    const std::unordered_map<std::uint32_t, std::string>& temps,
+    const ObjectRef& ref) {
+    if (const auto* id = std::get_if<ObjectId>(&ref)) {
+        if (const auto* object = snapshot.object(*id)) {
+            return object->name;
+        }
+        return to_string(*id);
+    }
+    const auto temp = std::get<TempObjectId>(ref);
+    if (const auto iter = temps.find(temp.value); iter != temps.end()) {
+        return iter->second;
+    }
+    return to_string(temp);
+}
+
+// Render the exact operations carried by a commit's delta, resolving type,
+// relation, and object names against the post-commit snapshot. Internal
+// bookkeeping ops (symbol interning, asserts, raw events) are omitted.
+std::vector<std::string> summarize_delta(const WorldSnapshot& after, const Delta& delta) {
+    std::unordered_map<std::uint32_t, std::string> temps;
+    for (const auto& op : delta.ops) {
+        if (op.kind == OperationKind::CreateObject) {
+            const auto& body = std::get<CreateObjectOp>(op.body);
+            temps.emplace(body.temp_id.value, body.name);
+        }
+    }
+
+    std::vector<std::string> lines;
+    for (const auto& op : delta.ops) {
+        switch (op.kind) {
+        case OperationKind::CreateObject: {
+            const auto& body = std::get<CreateObjectOp>(op.body);
+            lines.push_back(fmt::format("create object {} : {}", body.name, after.type_name(body.type)));
+            for (const auto& attribute : body.attributes) {
+                lines.push_back(fmt::format("  {}.{} = {}", body.name, attribute.key, to_string(attribute.value)));
+            }
+            break;
+        }
+        case OperationKind::SetObjectType: {
+            const auto& body = std::get<SetObjectTypeOp>(op.body);
+            lines.push_back(fmt::format("set type {} : {}", ref_name(after, temps, body.object), after.type_name(body.type)));
+            break;
+        }
+        case OperationKind::SetObjectExistence: {
+            const auto& body = std::get<SetObjectExistenceOp>(op.body);
+            lines.push_back(fmt::format("set existence {} = {}", ref_name(after, temps, body.object), to_string(body.existence)));
+            break;
+        }
+        case OperationKind::SetObjectAttribute: {
+            const auto& body = std::get<SetObjectAttributeOp>(op.body);
+            lines.push_back(fmt::format(
+                "set {}.{} = {}", ref_name(after, temps, body.object), body.attribute.key, to_string(body.attribute.value)));
+            break;
+        }
+        case OperationKind::RemoveObjectAttribute: {
+            const auto& body = std::get<RemoveObjectAttributeOp>(op.body);
+            lines.push_back(fmt::format("remove {}.{}", ref_name(after, temps, body.object), body.key));
+            break;
+        }
+        case OperationKind::CreatePointer: {
+            const auto& body = std::get<CreatePointerOp>(op.body);
+            lines.push_back(fmt::format(
+                "create link {} -> {} : {} (weight={:.6g} role={})",
+                ref_name(after, temps, body.from),
+                ref_name(after, temps, body.to),
+                after.relation_name(body.relation),
+                body.weight.value,
+                to_string(body.causal_role)));
+            for (const auto& attribute : body.attributes) {
+                lines.push_back(fmt::format("  {} = {}", attribute.key, to_string(attribute.value)));
+            }
+            break;
+        }
+        case OperationKind::ExpirePointer: {
+            const auto& body = std::get<ExpirePointerOp>(op.body);
+            lines.push_back(fmt::format("expire pointer {}", to_string(body.id)));
+            break;
+        }
+        case OperationKind::SetPointerWeight: {
+            const auto& body = std::get<SetPointerWeightOp>(op.body);
+            lines.push_back(fmt::format("set weight {} = {:.6g}", to_string(body.id), body.weight.value));
+            break;
+        }
+        case OperationKind::SetPointerAttribute: {
+            const auto& body = std::get<SetPointerAttributeOp>(op.body);
+            lines.push_back(fmt::format(
+                "set pointer {}.{} = {}", to_string(body.id), body.attribute.key, to_string(body.attribute.value)));
+            break;
+        }
+        case OperationKind::RemovePointerAttribute: {
+            const auto& body = std::get<RemovePointerAttributeOp>(op.body);
+            lines.push_back(fmt::format("remove pointer {}.{}", to_string(body.id), body.key));
+            break;
+        }
+        case OperationKind::EmitEvent:
+        case OperationKind::InternType:
+        case OperationKind::InternRelation:
+        case OperationKind::AssertObject:
+        case OperationKind::AssertPointer:
+        case OperationKind::AssertFact:
+            break;
+        }
+    }
+    return lines;
+}
+
+const LawStatus* find_status(const std::vector<LawStatus>& statuses, const LawId& law) {
+    for (const auto& status : statuses) {
+        if (status.law == law) {
+            return &status;
+        }
+    }
+    return nullptr;
 }
 
 }  // namespace
@@ -76,16 +201,83 @@ std::string ExplanationEngine::explain_commit(
         return fmt::format("commit {}: unavailable\n", commit_prefix);
     }
 
+    const auto id = record->id;
+    const auto parent = record->parent;
+    const auto label = record->label;
+    const auto origin = record->origin;
+    const bool accepted = record->accepted;
+    const auto before_epoch = record->before_epoch;
+    const auto after_epoch = record->after_epoch;
+
     std::ostringstream output;
-    output << fmt::format("commit {}\n", short_hash(record->id));
-    output << fmt::format("  label: {}\n", record->label.empty() ? "(unlabeled)" : record->label);
-    output << fmt::format("  origin: {}\n", to_string(record->origin));
-    output << fmt::format("  accepted: {}\n", record->accepted ? "yes" : "no");
-    output << fmt::format("  epoch: {} -> {}\n", record->before_epoch.value, record->after_epoch.value);
-    output << fmt::format("  events: {}\n", record->events.size());
-    for (const auto& violation : record->violations) {
-        output << fmt::format("  violation: law.{} {} {}\n", violation.law, to_string(violation.severity), violation.explanation);
+    output << fmt::format("commit {}\n", short_hash(id));
+    output << fmt::format("  label: {}\n", label.empty() ? "(unlabeled)" : label);
+    output << fmt::format("  origin: {}\n", to_string(origin));
+    output << fmt::format("  accepted: {}\n", accepted ? "yes" : "no");
+    output << fmt::format("  epoch: {} -> {}\n", before_epoch.value, after_epoch.value);
+
+    try {
+        const auto stored = repository.objects().get_canonical<StoredCommit>(id.value);
+        const auto after = repository.objects().get_canonical<WorldSnapshot>(stored.after_snapshot_object);
+        const auto delta = repository.objects().get_canonical<Delta>(stored.delta_object);
+        const auto statuses = repository.objects().get_canonical<std::vector<LawStatus>>(stored.law_status_object);
+        const auto violations = repository.objects().get_canonical<std::vector<LawViolation>>(stored.violation_object);
+
+        const auto lines = summarize_delta(after, delta);
+        output << fmt::format("  delta: {} change(s)\n", lines.size());
+        constexpr std::size_t max_lines = 40;
+        for (std::size_t index = 0; index < lines.size(); ++index) {
+            if (index == max_lines) {
+                output << fmt::format("    (+{} more)\n", lines.size() - max_lines);
+                break;
+            }
+            output << "    " << lines[index] << "\n";
+        }
+
+        std::vector<LawStatus> parent_statuses;
+        if (parent.has_value()) {
+            try {
+                const auto parent_stored = repository.objects().get_canonical<StoredCommit>(parent->value);
+                parent_statuses =
+                    repository.objects().get_canonical<std::vector<LawStatus>>(parent_stored.law_status_object);
+            } catch (const std::exception&) {
+                // Parent law material unavailable: report current state without a diff.
+            }
+        }
+
+        if (!statuses.empty()) {
+            output << "  laws:\n";
+            for (const auto& status : statuses) {
+                std::string change = status.passed ? "stable" : "broken";
+                if (parent.has_value()) {
+                    const auto* prior = find_status(parent_statuses, status.law);
+                    if (prior == nullptr) {
+                        change = status.passed ? "new" : "new, broken";
+                    } else if (prior->passed && !status.passed) {
+                        change = "broke";
+                    } else if (!prior->passed && status.passed) {
+                        change = "recovered";
+                    } else {
+                        change = "stable";
+                    }
+                }
+                output << fmt::format(
+                    "    law.{} {} ({}) magnitude={:.6g}\n",
+                    status.law,
+                    status.passed ? std::string{"passed"} : to_string(status.severity),
+                    change,
+                    status.magnitude);
+            }
+        }
+
+        for (const auto& violation : violations) {
+            output << fmt::format(
+                "  violation: law.{} {} {}\n", violation.law, to_string(violation.severity), violation.explanation);
+        }
+    } catch (const std::exception&) {
+        // Stored commit material unavailable: fall back to the record header.
     }
+
     return output.str();
 }
 

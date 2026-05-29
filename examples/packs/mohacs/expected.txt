@@ -1,0 +1,8 @@
+law no_battle_before_reinforcements registered
+=> law.no_battle_before_reinforcements error magnitude=1: HungarianArmy gives battle at Mohacs_Field before its reinforcements have joined
+why OttomanArmy defeats Louis_II
+first divergent commit:
+  left (historical): link HungarianCavalry -> OttomanArmy : charges
+  right (reinforced): link TransylvanianArmy -> HungarianArmy : reinforces
+law.no_battle_before_reinforcements passed (stable)
+status:             clean

@@ -41,7 +41,9 @@ std::vector<LawViolation> PatternLaw::check(const LawCheckContext& ctx) const {
     for (const auto& match : trigger_matches(ctx, rule_.trigger)) {
         bool satisfied = true;
         for (const auto& requirement : rule_.requirements) {
-            if (!requirement_exists(ctx, match, requirement)) {
+            const bool exists = requirement_exists(ctx, match, requirement);
+            // A normal requirement must exist; a forbidden one must not.
+            if (requirement.forbidden ? exists : !exists) {
                 satisfied = false;
                 break;
             }

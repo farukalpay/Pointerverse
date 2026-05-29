@@ -1,0 +1,65 @@
+# Mohács, 29 August 1526 - the eve of battle.
+#
+# This baseline arrays both armies on the plain at Mohács and puts the
+# Transylvanian and Croatian relief armies on the road, still days away. It
+# takes no side in the outcome: the forks decide what the war council does next.
+#
+# Numbers and names follow the historical record; they are entered as typed
+# attributes so the world reads like a campaign ledger.
+
+domain load examples/packs/mohacs/mohacs_rules.pvdomain
+law add no_battle_before_reinforcements
+
+# The Ottoman host
+object Suleiman_I : Sultan reign_from=1520 reign_to=1566 title=the_magnificent
+object Ibrahim_Pasha : Commander office=grand_vizier
+object Gazi_Bali_Bey : Commander office=beylerbey_of_rumelia
+object OttomanArmy : Army troops=45000 date=1526-08-29
+object Janissaries : Corps troops=10000 firearms=true
+object OttomanArtillery : Artillery guns=300 chained=true
+
+# The Hungarian royal army
+object Louis_II : King age=20 house=Jagiellon
+object Pal_Tomori : Commander office=archbishop_of_kalocsa line=first
+object Gyorgy_Szapolyai : Commander line=second
+object HungarianArmy : RoyalArmy troops=26000 date=1526-08-29
+object HungarianCavalry : Cavalry weight_class=heavy
+object HungarianArtillery : Artillery guns=85
+
+# The relief armies, still on the march
+object Janos_Szapolyai : Commander office=voivode_of_transylvania
+object TransylvanianArmy : Army troops=10000 status=marching days_away=3
+object Christoph_Frankopan : Commander office=ban_of_croatia
+object CroatianForce : Army troops=5000 status=marching days_away=2
+
+# Ground and realm
+object Mohacs_Field : Battlefield terrain=marshy_plain date=1526-08-29
+object Buda : Kingdom
+object Kingdom_of_Hungary : Kingdom
+object Transylvania : Province
+
+# Ottoman command and order of battle
+link Suleiman_I -> OttomanArmy : commands weight=1.0 role=Generative
+link Ibrahim_Pasha -> OttomanArmy : leads weight=0.9 role=Generative
+link Gazi_Bali_Bey -> OttomanArmy : leads weight=0.7 role=Generative
+link Janissaries -> OttomanArmy : reinforces weight=0.85
+link OttomanArtillery -> OttomanArmy : reinforces weight=0.85
+link OttomanArmy -> Mohacs_Field : deploys weight=1.0
+
+# Hungarian command and order of battle
+link Louis_II -> Kingdom_of_Hungary : rules weight=1.0 role=Generative
+link Louis_II -> HungarianArmy : commands weight=1.0 role=Generative
+link Pal_Tomori -> HungarianArmy : leads weight=0.9 role=Generative
+link Gyorgy_Szapolyai -> HungarianArmy : leads weight=0.7 role=Generative
+link HungarianCavalry -> HungarianArmy : reinforces weight=0.8
+link HungarianArtillery -> HungarianArmy : reinforces weight=0.6
+link HungarianArmy -> Mohacs_Field : deploys weight=1.0
+
+# The relief armies on the road
+link Janos_Szapolyai -> TransylvanianArmy : commands weight=0.9 role=Generative
+link Christoph_Frankopan -> CroatianForce : commands weight=0.9 role=Generative
+link TransylvanianArmy -> Mohacs_Field : marches_to weight=0.6
+link CroatianForce -> Mohacs_Field : marches_to weight=0.5
+
+evolve 2
+inspect object HungarianArmy

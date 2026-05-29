@@ -2,8 +2,10 @@
 #include "commands.hpp"
 
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -47,6 +49,10 @@ public:
         query_ = repo->add_subcommand("query", "Query branch graph and history");
         query_->add_option("branch", query_branch_, "Branch name")->required();
         query_->add_option("query", query_terms_, "Query terms")->required()->expected(-1);
+
+        query_file_ = repo->add_subcommand("query-file", "Run a saved query file (one query per line)");
+        query_file_->add_option("branch", query_file_branch_, "Branch name")->required();
+        query_file_->add_option("file", query_file_path_, "Path to a saved query file")->required();
 
         explain_ = repo->add_subcommand("explain", "Explain a branch object or commit");
         explain_->add_option("branch", explain_branch_, "Branch name")->required();
@@ -142,6 +148,40 @@ public:
                 return EXIT_SUCCESS;
             });
         }
+        if (query_file_->parsed()) {
+            return run_checked([&] {
+                const auto repository = Repository::open(repo_path_);
+                const auto snapshot = repository.world(query_file_branch_).snapshot();
+                std::ifstream input(query_file_path_);
+                if (!input) {
+                    throw std::runtime_error(fmt::format("cannot open query file '{}'", query_file_path_));
+                }
+                std::size_t executed = 0;
+                std::string line;
+                while (std::getline(input, line)) {
+                    const auto marker = line.find('#');
+                    std::istringstream tokens(marker == std::string::npos ? line : line.substr(0, marker));
+                    std::vector<std::string> terms;
+                    std::string token;
+                    while (tokens >> token) {
+                        terms.push_back(token);
+                    }
+                    if (terms.empty()) {
+                        continue;
+                    }
+                    std::string joined;
+                    for (const auto& term : terms) {
+                        joined += joined.empty() ? term : " " + term;
+                    }
+                    std::cout << fmt::format("query: {}\n", joined);
+                    print_query_result(snapshot, run_query(repository, query_file_branch_, terms));
+                    std::cout << "\n";
+                    executed += 1;
+                }
+                std::cout << fmt::format("ran {} quer{} from {}\n", executed, executed == 1 ? "y" : "ies", query_file_path_);
+                return EXIT_SUCCESS;
+            });
+        }
         if (explain_->parsed()) {
             return run_checked([&] {
                 const auto repository = Repository::open(repo_path_);
@@ -206,6 +246,23 @@ public:
                     "common ancestor: {}\n",
                     analysis.common_ancestor.has_value() ? short_hash(*analysis.common_ancestor) : "none");
                 std::cout << fmt::format("status: {}\n", to_string(analysis.status));
+                if (analysis.left_divergence.commit.has_value() || analysis.right_divergence.commit.has_value()) {
+                    const auto print_divergence = [](std::string_view side, std::string_view branch, const DivergencePoint& point) {
+                        if (point.commit.has_value()) {
+                            std::cout << fmt::format(
+                                "  {} ({}): {} {}\n",
+                                side,
+                                branch,
+                                short_hash(*point.commit),
+                                point.label.empty() ? "(unlabeled)" : point.label);
+                        } else {
+                            std::cout << fmt::format("  {} ({}): none (at fork point)\n", side, branch);
+                        }
+                    };
+                    std::cout << "\nfirst divergent commit:\n";
+                    print_divergence("left", left_branch_, analysis.left_divergence);
+                    print_divergence("right", right_branch_, analysis.right_divergence);
+                }
                 if (!analysis.object_conflicts.empty()) {
                     std::cout << "\nobject conflicts:\n";
                     for (const auto& conflict : analysis.object_conflicts) {
@@ -258,6 +315,7 @@ private:
     CLI::App* run_{nullptr};
     CLI::App* repl_{nullptr};
     CLI::App* query_{nullptr};
+    CLI::App* query_file_{nullptr};
     CLI::App* explain_{nullptr};
     CLI::App* why_{nullptr};
     CLI::App* verify_{nullptr};
@@ -278,6 +336,8 @@ private:
     std::string repl_branch_;
     std::string query_branch_;
     std::vector<std::string> query_terms_;
+    std::string query_file_branch_;
+    std::string query_file_path_;
     std::string explain_branch_;
     std::string explain_kind_;
     std::string explain_target_;
