@@ -5,16 +5,21 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <fmt/format.h>
 
 #include "command_utils.hpp"
+#include "pv/domain/package.hpp"
 #include "pv/ingest/agent_audit_adapter.hpp"
+#include "pv/ingest/graph_log_importer.hpp"
 #include "pv/ingest/ingestion_index.hpp"
 #include "pv/ingest/ingestion_pipeline.hpp"
 #include "pv/ingest/jsonl_adapter.hpp"
+#include "pv/rule/rule.hpp"
 #include "pv/storage/repository.hpp"
 
 namespace pv::app {
@@ -63,48 +68,91 @@ public:
         agent_log_->add_option("--branch", branch_, "Branch to ingest into")->default_val("main");
         agent_log_->add_option("--mode", mode_, "observe | strict")->default_val("observe");
         agent_log_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
+
+        graph_log_ = ingest->add_subcommand("graph-log", "Ingest a generic graph-event JSONL stream");
+        graph_log_->add_option("events", graph_events_path_, "Path to JSONL graph events")->required();
+        graph_log_->add_option("--branch", graph_branch_, "Branch to ingest into")->default_val("main");
+        graph_log_->add_option("--mode", graph_mode_, "observe | strict")->default_val("observe");
+        graph_log_->add_option("--rules", graph_rules_path_, "Optional domain package file with rules");
+        graph_log_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
     }
 
     int run() override {
-        if (!agent_log_->parsed()) {
-            return EXIT_SUCCESS;
+        if (agent_log_->parsed()) {
+            return run_checked([&] {
+                auto repository = Repository::open(store_path_);
+                std::ifstream input(events_path_);
+                if (!input) {
+                    throw std::runtime_error(fmt::format("cannot open events '{}'", events_path_));
+                }
+
+                const JsonlEvidenceAdapter jsonl{"agent-log"};
+                const auto batch = jsonl.read(input);
+                AgentAuditAdapter normalizer;
+                IngestionIndex index{repository.root()};
+                IngestionOptions options;
+                options.branch = branch_;
+                options.domain = domain_;
+                options.mode = parse_ingestion_mode(mode_);
+
+                auto result = IngestionPipeline{repository}.ingest(batch.events, normalizer, index, options);
+                result.events_read += batch.errors.size();
+                result.errors += batch.errors.size();
+                for (const auto& error : batch.errors) {
+                    result.messages.push_back(IngestionMessage{error.line, {}, error.message});
+                }
+                print_ingestion_report(result);
+                const auto ok = result.errors == 0
+                    && (options.mode == VerificationMode::Observe || result.rejected == 0);
+                return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+            });
         }
-        return run_checked([&] {
-            auto repository = Repository::open(store_path_);
-            std::ifstream input(events_path_);
-            if (!input) {
-                throw std::runtime_error(fmt::format("cannot open events '{}'", events_path_));
-            }
+        if (graph_log_->parsed()) {
+            return run_checked([&] {
+                auto repository = Repository::open(store_path_);
+                std::ifstream input(graph_events_path_);
+                if (!input) {
+                    throw std::runtime_error(fmt::format("cannot open events '{}'", graph_events_path_));
+                }
 
-            const JsonlEvidenceAdapter jsonl{"agent-log"};
-            const auto batch = jsonl.read(input);
-            AgentAuditAdapter normalizer;
-            IngestionIndex index{repository.root()};
-            IngestionOptions options;
-            options.branch = branch_;
-            options.domain = domain_;
-            options.mode = parse_ingestion_mode(mode_);
+                std::vector<Rule> rules;
+                if (!graph_rules_path_.empty()) {
+                    std::ifstream rules_input(graph_rules_path_);
+                    if (!rules_input) {
+                        throw std::runtime_error(fmt::format("cannot open rules '{}'", graph_rules_path_));
+                    }
+                    std::ostringstream buffer;
+                    buffer << rules_input.rdbuf();
+                    rules = parse_domain_package(buffer.str()).rules;
+                }
 
-            auto result = IngestionPipeline{repository}.ingest(batch.events, normalizer, index, options);
-            result.events_read += batch.errors.size();
-            result.errors += batch.errors.size();
-            for (const auto& error : batch.errors) {
-                result.messages.push_back(IngestionMessage{error.line, {}, error.message});
-            }
-            print_ingestion_report(result);
-            const auto ok = result.errors == 0
-                && (options.mode == VerificationMode::Observe || result.rejected == 0);
-            return ok ? EXIT_SUCCESS : EXIT_FAILURE;
-        });
+                IngestionIndex index{repository.root()};
+                IngestionOptions options;
+                options.branch = graph_branch_;
+                options.mode = parse_ingestion_mode(graph_mode_);
+
+                const auto result = GraphLogImporter{repository}.import(input, index, options, rules);
+                print_ingestion_report(result);
+                const auto ok = result.errors == 0
+                    && (options.mode == VerificationMode::Observe || result.rejected == 0);
+                return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+            });
+        }
+        return EXIT_SUCCESS;
     }
 
 private:
     CLI::App* agent_log_{nullptr};
+    CLI::App* graph_log_{nullptr};
     std::string store_path_{".pvstore"};
     std::string events_path_;
     std::string domain_{"agent_audit"};
     std::string branch_{"main"};
     std::string mode_{"observe"};
+    std::string graph_events_path_;
+    std::string graph_branch_{"main"};
+    std::string graph_mode_{"observe"};
+    std::string graph_rules_path_;
 };
 
 }  // namespace

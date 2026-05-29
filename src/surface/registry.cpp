@@ -60,9 +60,9 @@ std::vector<SurfaceManifest> built_in_surfaces() {
         SurfaceManifest{
             "realms",
             "Realms",
-            "Fork and inspect symbolic worlds built on the same graph runtime.",
-            {"pointerverse pack run empire"},
-            {"examples/packs/empire"}
+            "Fork a real history into counterfactual worlds and prove every divergence.",
+            {"pointerverse pack run mohacs"},
+            {"examples/packs/mohacs"}
         },
         SurfaceManifest{
             "audit",

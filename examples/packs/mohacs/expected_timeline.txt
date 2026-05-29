@@ -1,0 +1,28 @@
+What each branch shows.
+
+main:
+- Both hosts array on the plain at Mohács on 29 August 1526.
+- The Transylvanian army (Janos Szapolyai, 10,000) and the Croatian force
+  (Christoph Frankopan, 5,000) are entered as still marching, days away.
+- The law no_battle_before_reinforcements is registered and holds.
+
+historical:
+- The royal army gives battle before the relief armies arrive, so the law
+  rejects that commit - the engine flags the decision the chroniclers recorded.
+- The afternoon is then committed in order: the heavy cavalry charges, Ottoman
+  artillery breaks it, Gazi Bali Bey encircles the army, the army is routed
+  (casualties 14000), Louis II is defeated and drowns in the Csele stream, and
+  the Ottoman army advances on Buda.
+
+reinforced:
+- The relief armies join first, the royal army is reinforced to 41,000, and only
+  then gives battle - so the same law passes.
+- The supported line holds and overruns the Ottoman guns; Louis II keeps the
+  kingdom.
+
+verification:
+- why historical OttomanArmy defeats Louis_II traces the defeat to its causes.
+- branch compare historical reinforced names the first divergent commit on each
+  side and reports the divergent state.
+- explain reinforced <gives_battle commit> prints the exact delta and law status.
+- fsck reports a clean, replayable store.

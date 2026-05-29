@@ -3,8 +3,10 @@
 
 #include <cmath>
 #include <map>
+#include <optional>
 #include <set>
 
+#include "pv/runtime/commit_graph.hpp"
 #include "pv/runtime/world_store.hpp"
 
 namespace pv {
@@ -101,6 +103,32 @@ MergeAnalysis analyze_merge(const WorldStore& store, BranchId left_id, BranchId 
         analysis.status = MergeStatus::DivergentHistory;
         return analysis;
     }
+
+    // Name the first commit each branch added after the fork point. This is the
+    // first causally relevant commit on each side: the change that started the
+    // divergence the rest of the analysis measures.
+    const auto first_after_ancestor = [&](CommitId head) -> DivergencePoint {
+        DivergencePoint point;
+        if (head == *analysis.common_ancestor) {
+            return point;
+        }
+        std::optional<CommitId> previous;
+        for (const auto& id : store.graph().path_to_root(head)) {
+            if (id == *analysis.common_ancestor) {
+                point.commit = previous;
+                break;
+            }
+            previous = id;
+        }
+        if (point.commit.has_value()) {
+            if (const auto* record = store.commit_record(*point.commit)) {
+                point.label = record->label;
+            }
+        }
+        return point;
+    };
+    analysis.left_divergence = first_after_ancestor(*left_branch.head);
+    analysis.right_divergence = first_after_ancestor(*right_branch.head);
 
     const auto ancestor_snapshot = store.snapshots().get(store.snapshots().materialize(*analysis.common_ancestor));
     const auto left_snapshot = store.world(left_id).snapshot();

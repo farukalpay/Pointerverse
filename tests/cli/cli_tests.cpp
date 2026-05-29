@@ -10,6 +10,8 @@
 #include <string>
 
 #include "pv/cli/script.hpp"
+#include "pv/core/snapshot.hpp"
+#include "pv/core/value.hpp"
 
 using namespace pv;
 
@@ -26,10 +28,10 @@ std::string read_file(const std::filesystem::path& path) {
 
 }  // namespace
 
-TEST_CASE("CLI runs minimal M0 graph flow and exports JSONL trace") {
+TEST_CASE("CLI runs a minimal graph flow and exports a JSONL trace") {
     World world;
     cli::ScriptEngine engine{world};
-    const auto trace_path = std::filesystem::temp_directory_path() / "pointerverse_m0_trace.jsonl";
+    const auto trace_path = std::filesystem::temp_directory_path() / "pointerverse_minimal_trace.jsonl";
 
     std::ostringstream output;
     std::istringstream input{
@@ -57,6 +59,85 @@ TEST_CASE("CLI runs minimal M0 graph flow and exports JSONL trace") {
     REQUIRE(trace_text.find("\"event\":\"object.create\"") != std::string::npos);
     REQUIRE(trace_text.find("\"event\":\"pointer.create\"") != std::string::npos);
     REQUIRE(trace_text.find("\"event\":\"law.check\"") != std::string::npos);
+}
+
+TEST_CASE("CLI object and link attributes become typed graph state") {
+    World world;
+    cli::ScriptEngine engine{world};
+
+    std::ostringstream output;
+    std::istringstream input{
+        "world new realm\n"
+        "object Commander : Officer rank=marshal troops=12000 ready=true\n"
+        "object Field : Place\n"
+        "link Commander -> Field : holds weight=0.9 since=1526-08-29 morale=0.75\n"
+        "inspect object Commander\n"
+    };
+    REQUIRE(engine.run_stream(input, output));
+
+    const auto text = output.str();
+    REQUIRE(text.find("attributes:") != std::string::npos);
+    REQUIRE(text.find("rank = marshal") != std::string::npos);
+    REQUIRE(text.find("troops = 12000") != std::string::npos);
+    REQUIRE(text.find("ready = true") != std::string::npos);
+
+    const auto snapshot = world.snapshot();
+
+    // Object attributes are typed, not coerced to strings.
+    const ObjectSnapshot* commander = nullptr;
+    for (const auto& object : snapshot.objects) {
+        if (object.name == "Commander") {
+            commander = &object;
+        }
+    }
+    REQUIRE(commander != nullptr);
+    bool troops_is_unsigned = false;
+    for (const auto& attribute : commander->attributes) {
+        if (attribute.key == "troops") {
+            troops_is_unsigned = attribute.value.kind == ValueKind::UInt64;
+        }
+    }
+    REQUIRE(troops_is_unsigned);
+
+    // Link attributes are preserved on the pointer: a dotted date stays a string,
+    // a decimal becomes a float.
+    REQUIRE(snapshot.pointers.size() == 1);
+    const auto& pointer = snapshot.pointers.front();
+    bool date_preserved = false;
+    bool morale_is_float = false;
+    for (const auto& attribute : pointer.attributes) {
+        if (attribute.key == "since") {
+            date_preserved = attribute.value.kind == ValueKind::String
+                && to_string(attribute.value) == "1526-08-29";
+        }
+        if (attribute.key == "morale") {
+            morale_is_float = attribute.value.kind == ValueKind::Float64;
+        }
+    }
+    REQUIRE(date_preserved);
+    REQUIRE(morale_is_float);
+}
+
+TEST_CASE("CLI attribute-bearing scripts replay to the same world hash") {
+    const auto script =
+        "world new realm\n"
+        "object Commander : Officer rank=marshal troops=12000\n"
+        "object Field : Place\n"
+        "link Commander -> Field : holds weight=0.9 since=1526-08-29\n"
+        "evolve 1\n";
+
+    World left;
+    World right;
+    cli::ScriptEngine left_engine{left};
+    cli::ScriptEngine right_engine{right};
+    std::ostringstream left_output;
+    std::ostringstream right_output;
+    std::istringstream left_input{script};
+    std::istringstream right_input{script};
+
+    REQUIRE(left_engine.run_stream(left_input, left_output));
+    REQUIRE(right_engine.run_stream(right_input, right_output));
+    REQUIRE(left.canonical_hash() == right.canonical_hash());
 }
 
 TEST_CASE("CLI exposes world surface and pack registry commands") {
@@ -284,6 +365,42 @@ TEST_CASE("CLI repo run supports audit query and why commands") {
     std::filesystem::remove_all(repo_dir);
 }
 
+TEST_CASE("CLI repo query-file runs a saved query batch") {
+    const auto repo_dir = std::filesystem::temp_directory_path() / "pointerverse_cli_query_file";
+    std::filesystem::remove_all(repo_dir);
+    std::filesystem::create_directories(repo_dir);
+
+    const auto script_path = repo_dir / "world.pv";
+    const auto query_path = repo_dir / "queries.pvquery";
+    const auto report_path = repo_dir / "report.txt";
+    {
+        std::ofstream script(script_path);
+        script << "object Commander : Officer\n"
+               << "object Field : Place\n"
+               << "link Commander -> Field : holds weight=0.9\n";
+    }
+    {
+        std::ofstream queries(query_path);
+        queries << "# officers and their holdings\n"
+                << "objects type Officer\n"
+                << "links relation holds\n";
+    }
+
+    const auto command =
+        "cd " + shell_quote(repo_dir)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo init .pvstore > " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo run " + shell_quote(script_path) + " --branch main >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo query-file main " + shell_quote(query_path) + " >> " + shell_quote(report_path);
+
+    REQUIRE(std::system(command.c_str()) == 0);
+    const auto report = read_file(report_path);
+    REQUIRE(report.find("query: objects type Officer") != std::string::npos);
+    REQUIRE(report.find("Commander") != std::string::npos);
+    REQUIRE(report.find("ran 2 queries") != std::string::npos);
+
+    std::filesystem::remove_all(repo_dir);
+}
+
 TEST_CASE("CLI ingest and audit commands produce reports") {
     const auto repo_dir = std::filesystem::temp_directory_path() / "pointerverse_cli_ingest_audit";
     std::filesystem::remove_all(repo_dir);
@@ -398,14 +515,14 @@ TEST_CASE("CLI guard run audits PR demo and enforces strict mode") {
     std::filesystem::remove_all(repo_dir);
 }
 
-TEST_CASE("CLI runs Realms empire demo pack") {
+TEST_CASE("CLI runs the Realms Mohács demo pack") {
     const auto repo_dir = std::filesystem::temp_directory_path() / "pointerverse_cli_realms";
     std::filesystem::remove_all(repo_dir);
     std::filesystem::create_directories(repo_dir);
 
     const auto source_root = std::filesystem::path{__FILE__}.parent_path().parent_path().parent_path();
-    const auto demo_script = source_root / "examples" / "packs" / "empire" / "run.sh";
-    const auto store_path = repo_dir / "empire-store";
+    const auto demo_script = source_root / "examples" / "packs" / "mohacs" / "run.sh";
+    const auto store_path = repo_dir / "mohacs-store";
     const auto report_path = repo_dir / "realms-report.txt";
 
     const auto command =
@@ -417,9 +534,13 @@ TEST_CASE("CLI runs Realms empire demo pack") {
 
     REQUIRE(std::system(command.c_str()) == 0);
     const auto report = read_file(report_path);
-    REQUIRE(report.find("why QuarantineEdict quarantines Harbor") != std::string::npos);
-    REQUIRE(report.find("objects\n  RedFever") != std::string::npos);
-    REQUIRE(report.find("status: Conflict") != std::string::npos);
+    // The active law flags the premature historical attack.
+    REQUIRE(report.find("HungarianArmy gives battle at Mohacs_Field before its reinforcements have joined")
+        != std::string::npos);
+    // The same law passes once the counterfactual waits for reinforcements.
+    REQUIRE(report.find("law.no_battle_before_reinforcements passed") != std::string::npos);
+    REQUIRE(report.find("why OttomanArmy defeats Louis_II") != std::string::npos);
+    REQUIRE(report.find("first divergent commit:") != std::string::npos);
     REQUIRE(report.find("status:             clean") != std::string::npos);
 
     std::filesystem::remove_all(repo_dir);

@@ -34,6 +34,9 @@ struct RequirementPattern {
     PatternEndpointBinding from_binding{PatternEndpointBinding::TriggerFrom};
     PatternEndpointBinding to_binding{PatternEndpointBinding::TriggerTo};
     RequirementSearch search{RequirementSearch::BeforeOrAfter};
+    // When true the pattern must NOT be present: its presence is the violation.
+    // Applied across a branch this expresses "never after" temporal constraints.
+    bool forbidden{false};
 };
 
 struct PatternMatch {

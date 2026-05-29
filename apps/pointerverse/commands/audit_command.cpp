@@ -40,6 +40,11 @@ public:
         export_->add_option("branch", export_branch_, "Branch name")->required();
         export_->add_option("--format", export_format_, "json")->default_val("json");
         export_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
+
+        first_broke_ = audit->add_subcommand("first-broke", "Find the first commit that broke a law");
+        first_broke_->add_option("branch", first_broke_branch_, "Branch name")->required();
+        first_broke_->add_option("law", first_broke_law_, "Law name")->required();
+        first_broke_->add_option("--store", store_path_, "Repository path")->default_val(".pvstore");
     }
 
     int run() override {
@@ -85,6 +90,15 @@ public:
                 return EXIT_SUCCESS;
             });
         }
+        if (first_broke_->parsed()) {
+            return run_checked([&] {
+                const auto repository = Repository::open(store_path_);
+                const auto report = AuditReportGenerator{}.generate(repository, first_broke_branch_);
+                const auto violation = first_violation(report, first_broke_law_);
+                std::cout << render_first_break_text(first_broke_branch_, first_broke_law_, violation);
+                return EXIT_SUCCESS;
+            });
+        }
         return EXIT_SUCCESS;
     }
 
@@ -93,6 +107,7 @@ private:
     CLI::App* violations_{nullptr};
     CLI::App* timeline_{nullptr};
     CLI::App* export_{nullptr};
+    CLI::App* first_broke_{nullptr};
     std::string store_path_{".pvstore"};
     std::string report_branch_;
     std::string report_format_{"text"};
@@ -101,6 +116,8 @@ private:
     std::string timeline_object_;
     std::string export_branch_;
     std::string export_format_{"json"};
+    std::string first_broke_branch_;
+    std::string first_broke_law_;
 };
 
 }  // namespace

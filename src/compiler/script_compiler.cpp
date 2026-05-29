@@ -3,10 +3,17 @@
 
 namespace pv {
 
-Program ScriptCompiler::compile_object(const WorldSnapshot& snapshot, std::string_view name, std::string_view type) const {
+Program ScriptCompiler::compile_object(
+    const WorldSnapshot& snapshot,
+    std::string_view name,
+    std::string_view type,
+    const std::vector<Attribute>& attributes) const {
     ProgramBuilder builder;
     builder.import_symbols(snapshot);
-    (void)builder.create_object(name, type);
+    const auto object = builder.create_object(name, type);
+    for (const auto& attribute : attributes) {
+        builder.set_object_attribute(object, attribute.key, attribute.value);
+    }
     return builder.build();
 }
 
@@ -16,16 +23,20 @@ Program ScriptCompiler::compile_link(
     std::string_view to,
     std::string_view relation,
     double weight,
-    CausalRole role) const {
+    CausalRole role,
+    const std::vector<Attribute>& attributes) const {
     ProgramBuilder builder;
     builder.import_symbols(snapshot);
-    (void)builder.create_pointer(
+    const auto pointer = builder.create_pointer(
         builder.object_by_name(from),
         builder.object_by_name(to),
         relation,
         weight,
         role,
         "core");
+    for (const auto& attribute : attributes) {
+        builder.set_pointer_attribute(pointer, attribute.key, attribute.value);
+    }
     return builder.build();
 }
 

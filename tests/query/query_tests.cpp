@@ -3,7 +3,12 @@
 
 #include <chrono>
 #include <filesystem>
+#include <sstream>
+#include <string>
 
+#include "pv/cli/script.hpp"
+#include "pv/hash/canonical.hpp"
+#include "pv/query/explanation.hpp"
 #include "pv/query/query.hpp"
 #include "pv/storage/repository.hpp"
 
@@ -65,6 +70,46 @@ TEST_CASE("query engine finds objects links cones and touching commits") {
 
     const auto commits = query.commits_touching_object(repository, "main", agents.objects.front());
     REQUIRE(commits.commits.size() >= 2);
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("explanation engine reports exact commit deltas and law status") {
+    const auto root = temp_repo_path("explain");
+    auto repository = Repository::init(root);
+    (void)repository.create_branch("main", World{"realm"});
+
+    cli::ScriptEngine engine{repository, "main"};
+    std::ostringstream output;
+    std::istringstream input{
+        "law add bounded_weight\n"
+        "object Suleiman_I : Sultan army=50000\n"
+        "object Field : Battlefield\n"
+        "link Suleiman_I -> Field : commands weight=0.95 role=Generative date=1526-08-29\n"
+    };
+    REQUIRE(engine.run_stream(input, output));
+
+    const auto commit_prefix = [&](std::string_view label_fragment) {
+        std::string prefix;
+        for (const auto& record : repository.history("main")) {
+            if (record.label.find(label_fragment) != std::string::npos) {
+                prefix = to_hex(record.id.value).substr(0, 12);
+            }
+        }
+        return prefix;
+    };
+
+    const auto object_explanation =
+        ExplanationEngine{}.explain_commit(repository, "main", commit_prefix("object Suleiman_I"));
+    REQUIRE(object_explanation.find("delta:") != std::string::npos);
+    REQUIRE(object_explanation.find("create object Suleiman_I : Sultan") != std::string::npos);
+    REQUIRE(object_explanation.find("Suleiman_I.army = 50000") != std::string::npos);
+
+    const auto link_explanation =
+        ExplanationEngine{}.explain_commit(repository, "main", commit_prefix(": commands"));
+    REQUIRE(link_explanation.find("create link Suleiman_I -> Field : commands") != std::string::npos);
+    REQUIRE(link_explanation.find("date = 1526-08-29") != std::string::npos);
+    REQUIRE(link_explanation.find("law.bounded_weight") != std::string::npos);
 
     std::filesystem::remove_all(root);
 }

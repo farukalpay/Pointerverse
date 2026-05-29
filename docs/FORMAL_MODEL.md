@@ -1,6 +1,6 @@
 # Formal Model
 
-Pointerverse M0 models a world as an epoch-indexed typed directed graph.
+Pointerverse models a world as an epoch-indexed typed directed graph.
 
 - `WorldId`, `Epoch`, and `ObjectId` qualify identity.
 - `ObjectId` is a stable arena handle, not a raw memory address.

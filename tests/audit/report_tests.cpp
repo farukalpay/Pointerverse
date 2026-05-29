@@ -69,6 +69,32 @@ TEST_CASE("audit report renders text and JSON from observed violations") {
     std::filesystem::remove_all(root);
 }
 
+TEST_CASE("audit first-broke finds the earliest commit that broke a law") {
+    const auto root = temp_repo_path("firstbroke");
+    auto repository = Repository::init(root);
+    IngestionIndex index{repository.root()};
+    IngestionOptions options;
+    options.branch = "main";
+    options.mode = VerificationMode::Observe;
+
+    REQUIRE(IngestionPipeline{repository}.ingest({create_pr_event()}, AgentAuditAdapter{}, index, options).violations == 1);
+
+    const auto report = AuditReportGenerator{}.generate(repository, "main");
+
+    const auto broke = first_violation(report, "no_pr_without_tests");
+    REQUIRE(broke.has_value());
+    REQUIRE(broke->law == "no_pr_without_tests");
+    const auto broke_text = render_first_break_text("main", "no_pr_without_tests", broke);
+    REQUIRE(broke_text.find("first broke at epoch") != std::string::npos);
+
+    const auto clean = first_violation(report, "no_secret_exposure");
+    REQUIRE_FALSE(clean.has_value());
+    const auto clean_text = render_first_break_text("main", "no_secret_exposure", clean);
+    REQUIRE(clean_text.find("never broke") != std::string::npos);
+
+    std::filesystem::remove_all(root);
+}
+
 TEST_CASE("audit timeline lists events touching an object") {
     const auto root = temp_repo_path("timeline");
     auto repository = Repository::init(root);

@@ -126,6 +126,69 @@ TEST_CASE("pattern rule supports before requirements") {
         verifier).accepted);
 }
 
+TEST_CASE("forbid rule rejects a trigger when the forbidden relation is present") {
+    auto rules = parse_rules(
+        "rule never_modify_quarantined\n"
+        "when link Agent -> File : modifies\n"
+        "forbid after link Agent -> File : quarantined\n"
+        "deny reason \"{from} modifies quarantined {to}\"\n");
+    REQUIRE(rules.size() == 1);
+    REQUIRE(rules.front().requirements.size() == 1);
+    REQUIRE(rules.front().requirements.front().forbidden);
+
+    Verifier verifier;
+    verifier.add(std::make_shared<PatternLaw>(rules.front()));
+
+    World world{"audit"};
+    REQUIRE(world.commit(world.object_delta("Agent0", "Agent"), verifier).accepted);
+    REQUIRE(world.commit(world.object_delta("FileA", "File"), verifier).accepted);
+    REQUIRE(world.commit(
+        world.link_delta(
+            world.object_by_name("Agent0"),
+            world.object_by_name("FileA"),
+            "quarantined",
+            1.0,
+            CausalRole::Structural),
+        verifier).accepted);
+
+    const auto rejected = world.commit(
+        world.link_delta(
+            world.object_by_name("Agent0"),
+            world.object_by_name("FileA"),
+            "modifies",
+            1.0,
+            CausalRole::Structural),
+        verifier);
+
+    REQUIRE_FALSE(rejected.accepted);
+    REQUIRE(rejected.violations.size() == 1);
+    REQUIRE(rejected.violations.front().law == "never_modify_quarantined");
+    REQUIRE(rejected.violations.front().explanation == "Agent0 modifies quarantined FileA");
+}
+
+TEST_CASE("forbid rule accepts a trigger when the forbidden relation is absent") {
+    auto rules = parse_rules(
+        "rule never_modify_quarantined\n"
+        "when link Agent -> File : modifies\n"
+        "forbid after link Agent -> File : quarantined\n"
+        "deny reason \"{from} modifies quarantined {to}\"\n");
+
+    Verifier verifier;
+    verifier.add(std::make_shared<PatternLaw>(rules.front()));
+
+    World world{"audit"};
+    REQUIRE(world.commit(world.object_delta("Agent0", "Agent"), verifier).accepted);
+    REQUIRE(world.commit(world.object_delta("FileA", "File"), verifier).accepted);
+    REQUIRE(world.commit(
+        world.link_delta(
+            world.object_by_name("Agent0"),
+            world.object_by_name("FileA"),
+            "modifies",
+            1.0,
+            CausalRole::Structural),
+        verifier).accepted);
+}
+
 TEST_CASE("observe verifier records violations without rejecting commits") {
     auto rules = parse_rules(
         "rule no_write_without_read\n"

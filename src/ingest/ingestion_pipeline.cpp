@@ -105,7 +105,9 @@ IngestionResult IngestionPipeline::ingest(
     IngestionIndex& index,
     const IngestionOptions& options) {
     if (options.domain != "agent_audit") {
-        throw std::invalid_argument("M5 ingestion supports only --domain agent_audit");
+        throw std::invalid_argument(
+            "the agent-log pipeline only normalizes the agent_audit domain; "
+            "use 'ingest graph-log' for general event streams");
     }
     if (options.branch.empty()) {
         throw std::invalid_argument("ingestion branch cannot be empty");

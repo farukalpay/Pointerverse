@@ -1,5 +1,0 @@
-why QuarantineEdict quarantines Harbor
-objects
-RedFever
-status: Conflict
-status:             clean

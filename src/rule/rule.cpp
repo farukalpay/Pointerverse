@@ -110,6 +110,26 @@ std::optional<Rule> RuleBuilder::consume_line(std::string_view raw_line) {
         return std::nullopt;
     }
 
+    if (command == "forbid") {
+        RequirementSearch search = RequirementSearch::BeforeOrAfter;
+        std::string prefix{"forbid exists "};
+        if (starts_with(line, "forbid before ")) {
+            search = RequirementSearch::Before;
+            prefix = "forbid before ";
+        } else if (starts_with(line, "forbid after ")) {
+            search = RequirementSearch::After;
+            prefix = "forbid after ";
+        } else if (!starts_with(line, prefix)) {
+            throw std::invalid_argument("usage: forbid exists|before|after link FROM -> TO : RELATION");
+        }
+        RequirementPattern requirement;
+        requirement.pattern = parse_relation_pattern(line.substr(prefix.size()));
+        requirement.search = search;
+        requirement.forbidden = true;
+        draft_.requirements.push_back(std::move(requirement));
+        return std::nullopt;
+    }
+
     if (command == "deny") {
         const auto prefix = std::string{"deny reason "};
         if (!starts_with(line, prefix)) {

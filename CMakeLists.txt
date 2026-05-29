@@ -135,6 +135,7 @@ add_library(pointerverse_ingest
     src/ingest/agent_audit_adapter.cpp
     src/ingest/evidence.cpp
     src/ingest/event_schema.cpp
+    src/ingest/graph_log_importer.cpp
     src/ingest/ingestion_index.cpp
     src/ingest/ingestion_pipeline.cpp
     src/ingest/jsonl_adapter.cpp
