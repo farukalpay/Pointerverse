@@ -87,7 +87,8 @@ bool has_forbidden_surface_word(const std::string& text) {
 TEST_CASE("layered targets do not include higher product surfaces") {
     const auto root = source_root();
     const std::vector<std::string> app_forbidden{
-        "pv/storage/", "pv/sentinel/", "pv/guard/", "pv/audit/", "pv/ingest/", "apps/"
+        "pv/storage/", "pv/sentinel/", "pv/guard/", "pv/audit/", "pv/ingest/",
+        "pv/source/", "pv/normalize/", "pv/projection/", "pv/decision/", "apps/"
     };
     for (const auto& file : files_under({
              root / "include" / "pv" / "kernel",
@@ -107,19 +108,33 @@ TEST_CASE("layered targets do not include higher product surfaces") {
         REQUIRE_FALSE(includes_any_forbidden(file, app_forbidden));
     }
 
-    const std::vector<std::string> runtime_forbidden{"pv/storage/", "pv/sentinel/", "pv/guard/", "pv/audit/", "pv/ingest/", "apps/"};
+    const std::vector<std::string> runtime_forbidden{
+        "pv/storage/", "pv/sentinel/", "pv/guard/", "pv/audit/", "pv/ingest/",
+        "pv/source/", "pv/normalize/", "pv/projection/", "pv/decision/", "apps/"};
     for (const auto& file : files_under({root / "include" / "pv" / "runtime", root / "src" / "runtime"})) {
         CAPTURE(file.string());
         REQUIRE_FALSE(includes_any_forbidden(file, runtime_forbidden));
     }
 
-    const std::vector<std::string> storage_forbidden{"pv/sentinel/", "pv/guard/", "pv/audit/", "pv/ingest/", "apps/"};
+    const std::vector<std::string> storage_forbidden{
+        "pv/sentinel/", "pv/guard/", "pv/audit/", "pv/ingest/",
+        "pv/source/", "pv/normalize/", "pv/projection/", "pv/decision/", "apps/"};
     for (const auto& file : files_under({root / "include" / "pv" / "storage", root / "src" / "storage"})) {
         CAPTURE(file.string());
         REQUIRE_FALSE(includes_any_forbidden(file, storage_forbidden));
     }
 
-    const std::vector<std::string> measure_forbidden{"pv/guard/", "pv/audit/", "pv/ingest/", "apps/"};
+    const std::vector<std::string> query_forbidden{
+        "pv/measure/", "pv/guard/", "pv/audit/", "pv/ingest/",
+        "pv/source/", "pv/normalize/", "pv/projection/", "pv/decision/", "apps/"};
+    for (const auto& file : files_under({root / "include" / "pv" / "query", root / "src" / "query"})) {
+        CAPTURE(file.string());
+        REQUIRE_FALSE(includes_any_forbidden(file, query_forbidden));
+    }
+
+    const std::vector<std::string> measure_forbidden{
+        "pv/guard/", "pv/audit/", "pv/ingest/",
+        "pv/source/", "pv/normalize/", "pv/projection/", "pv/decision/", "apps/"};
     for (const auto& file : files_under({root / "include" / "pv" / "measure", root / "src" / "measure"})) {
         CAPTURE(file.string());
         REQUIRE_FALSE(includes_any_forbidden(file, measure_forbidden));

@@ -204,9 +204,17 @@ one with `surface show <name>`.
     --base ../before --format markdown --out audit-report.md
   ```
 
-- **Audit** turns event and agent logs into queryable, verifiable history:
+- **Source / Ingest / Project / Decide** turns external event streams into
+  canonical events, graph commits, projections, and evidence-backed reports:
 
   ```sh
+  ./build/pointerverse source inspect events.jsonl --format jsonl
+  ./build/pointerverse source normalize events.jsonl --format jsonl --out canonical.jsonl
+  ./build/pointerverse ingest canon canonical.jsonl --branch main
+  ./build/pointerverse project timeline main
+  ./build/pointerverse project entities main
+  ./build/pointerverse decide report main
+
   ./build/pointerverse ingest agent-log events.jsonl --branch main --mode observe
   ./build/pointerverse ingest graph-log world-events.jsonl --branch main
   ./build/pointerverse audit report main

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "pv/ingest/ingestion_pipeline.hpp"
+#include "pv/normalize/graph_event_encoder.hpp"
 #include "pv/rule/rule.hpp"
 
 namespace pv {
@@ -28,6 +29,12 @@ public:
 
     [[nodiscard]] IngestionResult import(
         std::istream& input,
+        IngestionIndex& index,
+        const IngestionOptions& options,
+        const std::vector<Rule>& rules = {});
+
+    [[nodiscard]] IngestionResult import(
+        const std::vector<GraphEvent>& events,
         IngestionIndex& index,
         const IngestionOptions& options,
         const std::vector<Rule>& rules = {});

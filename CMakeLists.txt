@@ -173,6 +173,20 @@ add_library(pointerverse_domains
 pointerverse_configure_target(pointerverse_domains)
 target_link_libraries(pointerverse_domains PUBLIC pointerverse_rules)
 
+add_library(pointerverse_source
+    src/source/source_batch.cpp
+    src/source/source_event.cpp
+)
+pointerverse_configure_target(pointerverse_source)
+target_link_libraries(pointerverse_source PUBLIC pointerverse_kernel)
+
+add_library(pointerverse_normalize
+    src/normalize/canonical_event.cpp
+    src/normalize/graph_event_encoder.cpp
+)
+pointerverse_configure_target(pointerverse_normalize)
+target_link_libraries(pointerverse_normalize PUBLIC pointerverse_source)
+
 add_library(pointerverse_ingest
     src/ingest/agent_audit_adapter.cpp
     src/ingest/evidence.cpp
@@ -184,7 +198,23 @@ add_library(pointerverse_ingest
     src/ingest/normalizer.cpp
 )
 pointerverse_configure_target(pointerverse_ingest)
-target_link_libraries(pointerverse_ingest PUBLIC pointerverse_storage pointerverse_domains)
+target_link_libraries(pointerverse_ingest PUBLIC pointerverse_storage pointerverse_domains pointerverse_normalize)
+
+add_library(pointerverse_projection
+    src/projection/entity_projection.cpp
+    src/projection/projection_store.cpp
+    src/projection/relation_projection.cpp
+    src/projection/timeline_projection.cpp
+)
+pointerverse_configure_target(pointerverse_projection)
+target_link_libraries(pointerverse_projection PUBLIC pointerverse_storage)
+
+add_library(pointerverse_decision
+    src/decision/decision_report.cpp
+    src/decision/signal_model.cpp
+)
+pointerverse_configure_target(pointerverse_decision)
+target_link_libraries(pointerverse_decision PUBLIC pointerverse_projection)
 
 add_library(pointerverse_audit
     src/audit/report.cpp
@@ -236,6 +266,10 @@ target_link_libraries(pointerverse_sdk
         pointerverse_measure
         pointerverse_rules
         pointerverse_domains
+        pointerverse_source
+        pointerverse_normalize
+        pointerverse_projection
+        pointerverse_decision
 )
 
 add_executable(pointerverse
@@ -243,13 +277,16 @@ add_executable(pointerverse
     apps/pointerverse/commands/audit_command.cpp
     apps/pointerverse/commands/command_utils.cpp
     apps/pointerverse/commands/commands.cpp
+    apps/pointerverse/commands/decide_command.cpp
     apps/pointerverse/commands/guard_command.cpp
     apps/pointerverse/commands/ingest_command.cpp
     apps/pointerverse/commands/measure_command.cpp
     apps/pointerverse/commands/pack_command.cpp
     apps/pointerverse/commands/pack_runner.cpp
+    apps/pointerverse/commands/project_command.cpp
     apps/pointerverse/commands/repo_command.cpp
     apps/pointerverse/commands/sentinel_command.cpp
+    apps/pointerverse/commands/source_command.cpp
     apps/pointerverse/commands/surface_command.cpp
     apps/pointerverse/commands/trace_command.cpp
     apps/pointerverse/commands/world_command.cpp
@@ -262,6 +299,10 @@ target_link_libraries(pointerverse
         pointerverse_audit
         pointerverse_measure
         pointerverse_ingest
+        pointerverse_source
+        pointerverse_normalize
+        pointerverse_projection
+        pointerverse_decision
         fmt::fmt
 )
 target_compile_definitions(pointerverse
@@ -301,9 +342,18 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/guard/policy_pack_tests.cpp
         tests/hash/canonical_hash_tests.cpp
         tests/ingest/agent_audit_ingestion_tests.cpp
+        tests/ingest/canonical_ingestion_tests.cpp
         tests/ingest/evidence_tests.cpp
         tests/ingest/idempotency_tests.cpp
         tests/ingest/jsonl_adapter_tests.cpp
+        tests/source/source_adapter_tests.cpp
+        tests/normalize/canonical_event_tests.cpp
+        tests/normalize/graph_event_encoder_tests.cpp
+        tests/projection/timeline_projection_tests.cpp
+        tests/projection/entity_projection_tests.cpp
+        tests/projection/relation_projection_tests.cpp
+        tests/decision/signal_model_tests.cpp
+        tests/decision/decision_report_tests.cpp
         tests/kernel/attribute_snapshot_tests.cpp
         tests/kernel/execution_plan_tests.cpp
         tests/kernel/merkle_root_tests.cpp
@@ -358,6 +408,10 @@ if(POINTERVERSE_BUILD_TESTS)
             pointerverse_sdk
             pointerverse_sentinel
             pointerverse_ingest
+            pointerverse_source
+            pointerverse_normalize
+            pointerverse_projection
+            pointerverse_decision
             pointerverse_measure
             pointerverse_audit
             pointerverse_guard
