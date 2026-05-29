@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -10,6 +11,8 @@
 
 #include "pv/guard/guard_pipeline.hpp"
 #include "pv/guard/report.hpp"
+#include "pv/measure/calibration.hpp"
+#include "pv/measure/measurement_spec.hpp"
 #include "pv/storage/repository.hpp"
 
 using namespace pv;
@@ -48,7 +51,52 @@ void make_fixture(const std::filesystem::path& root) {
     write_file(after / "src" / "generated" / "client.cpp", "// @generated\nint client = 1;\n");
 }
 
+CommitId fake_commit(std::byte marker) {
+    Hash256 hash;
+    hash.value.back() = marker;
+    return CommitId{hash};
+}
+
 }  // namespace
+
+TEST_CASE("guard strict decision uses frozen baseline and rejects current commit contamination") {
+    const auto spec = agent_audit_measurement_spec();
+    const auto spec_hash = measurement_spec_hash(spec);
+    const auto current_commit = fake_commit(std::byte{0x42});
+
+    GuardReport report;
+    report.measurement_spec_hash = spec_hash;
+    report.measured_risk.structural = 100;
+    report.strict_policy.min_history_commits_for_calibration = 1;
+    MeasuredRisk current;
+    current.commit = current_commit;
+    current.value = report.measured_risk;
+    report.measured_risks.push_back(current);
+
+    CalibrationBaseline baseline;
+    baseline.branch = "guard";
+    baseline.spec_hash = spec_hash;
+    baseline.sample.push_back(MeasurementIndexEntry{
+        "guard",
+        fake_commit(std::byte{0x11}),
+        spec_hash,
+        Hash256{},
+        RiskVector{5, 0, 0, 3},
+        8
+    });
+
+    const auto decision = strict_decision_for(report, &baseline);
+
+    REQUIRE(decision.calibration_commits == 1);
+    REQUIRE(decision.structural_threshold == 5);
+    REQUIRE(decision.structural_failed);
+    REQUIRE_FALSE(decision.baseline_contaminated);
+
+    baseline.sample.front().commit = current_commit;
+    const auto contaminated = strict_decision_for(report, &baseline);
+    REQUIRE(contaminated.baseline_contaminated);
+    REQUIRE(contaminated.failed);
+}
 
 TEST_CASE("guard pipeline ingests diff, persists graph, and renders reports") {
     const auto root = temp_path("run");
@@ -76,8 +124,24 @@ TEST_CASE("guard pipeline ingests diff, persists graph, and renders reports") {
     REQUIRE(markdown.find("### Artifacts") != std::string::npos);
     REQUIRE(markdown.find("secret_pattern_in_diff_is_critical") != std::string::npos);
 
-    const auto repository = Repository::open(root / "pvstore");
-    REQUIRE(repository.has_branch("guard"));
+    Hash256 baseline_hash;
+    {
+        auto repository = Repository::open(root / "pvstore");
+        REQUIRE(repository.has_branch("guard"));
+        const auto history = repository.history("guard");
+        REQUIRE_FALSE(history.empty());
+        const auto baseline = CalibrationStore{repository}.create(
+            "guard",
+            "guard",
+            history.back().id,
+            agent_audit_measurement_spec());
+        baseline_hash = baseline.baseline_hash;
+    }
+
+    options.baseline = "guard";
+    const auto baseline_result = run_guard(options);
+    REQUIRE(baseline_result.report.baseline_hash == baseline_hash);
+    REQUIRE(render_guard_report_json(baseline_result.report).find("\"baseline_hash\"") != std::string::npos);
 
     const auto json = nlohmann::json::parse(render_guard_report_json(result.report));
     REQUIRE(json["tool"] == "Pointerverse Guard");
@@ -101,6 +165,8 @@ TEST_CASE("guard pipeline ingests diff, persists graph, and renders reports") {
     REQUIRE(secret_location_has_line);
 
     REQUIRE(guard_strict_failed(result.report));
+    REQUIRE(read_file(std::filesystem::path{POINTERVERSE_SOURCE_ROOT} / "src" / "guard" / "guard_pipeline.cpp")
+        .find("risk_points") == std::string::npos);
 
     std::filesystem::remove_all(root);
 }

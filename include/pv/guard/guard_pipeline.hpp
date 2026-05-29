@@ -21,6 +21,7 @@ struct GuardRunOptions {
     std::filesystem::path sarif_out;
     std::filesystem::path store;
     std::string branch{"guard"};
+    std::string baseline;
     GuardStrictPolicy strict_policy;
     bool write_default_artifacts{true};
 };

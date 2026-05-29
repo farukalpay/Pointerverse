@@ -27,7 +27,9 @@ struct AuditViolation {
 struct AuditReport {
     std::string branch;
     std::size_t commits_checked{0};
+    Hash256 measurement_spec_hash;
     RiskVector risk;
+    std::uint64_t projected_score{0};
     std::vector<MeasuredRisk> measured_risks;
     int risk_score{0};
     std::vector<AuditViolation> violations;
@@ -37,7 +39,7 @@ struct AuditReport {
 class AuditReportGenerator {
 public:
     [[nodiscard]] AuditReport generate(
-        const Repository& repository,
+        Repository& repository,
         std::string_view branch) const;
 };
 

@@ -50,7 +50,7 @@ public:
     int run() override {
         if (report_->parsed()) {
             return run_checked([&] {
-                const auto repository = Repository::open(store_path_);
+                auto repository = Repository::open(store_path_);
                 const auto report = AuditReportGenerator{}.generate(repository, report_branch_);
                 if (report_format_ == "text") {
                     std::cout << render_audit_report_text(report);
@@ -65,7 +65,7 @@ public:
         }
         if (violations_->parsed()) {
             return run_checked([&] {
-                const auto repository = Repository::open(store_path_);
+                auto repository = Repository::open(store_path_);
                 const auto report = AuditReportGenerator{}.generate(repository, violations_branch_);
                 std::cout << render_audit_violations_text(report);
                 return EXIT_SUCCESS;
@@ -73,7 +73,7 @@ public:
         }
         if (timeline_->parsed()) {
             return run_checked([&] {
-                const auto repository = Repository::open(store_path_);
+                auto repository = Repository::open(store_path_);
                 const auto entries = audit_timeline(repository, timeline_branch_, timeline_object_);
                 std::cout << render_audit_timeline_text(timeline_branch_, timeline_object_, entries);
                 return EXIT_SUCCESS;
@@ -81,7 +81,7 @@ public:
         }
         if (export_->parsed()) {
             return run_checked([&] {
-                const auto repository = Repository::open(store_path_);
+                auto repository = Repository::open(store_path_);
                 const auto report = AuditReportGenerator{}.generate(repository, export_branch_);
                 if (export_format_ != "json") {
                     throw std::invalid_argument("audit export supports only --format json");
@@ -92,7 +92,7 @@ public:
         }
         if (first_broke_->parsed()) {
             return run_checked([&] {
-                const auto repository = Repository::open(store_path_);
+                auto repository = Repository::open(store_path_);
                 const auto report = AuditReportGenerator{}.generate(repository, first_broke_branch_);
                 const auto violation = first_violation(report, first_broke_law_);
                 std::cout << render_first_break_text(first_broke_branch_, first_broke_law_, violation);

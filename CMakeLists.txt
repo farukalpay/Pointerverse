@@ -135,6 +135,12 @@ add_library(pointerverse_measure
     src/measure/law_measure.cpp
     src/measure/repair_measure.cpp
     src/measure/history_measure.cpp
+    src/measure/calibration.cpp
+    src/measure/measurement_index.cpp
+    src/measure/measurement_record.cpp
+    src/measure/measurement_spec.cpp
+    src/measure/measurement_store.cpp
+    src/measure/measurement_verifier.cpp
     src/measure/risk_functional.cpp
     src/measure/risk_projection.cpp
 )
@@ -301,10 +307,13 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/kernel/proof_tests.cpp
         tests/kernel/vm_tests.cpp
         tests/measure/risk_lattice_tests.cpp
+        tests/measure/calibration_tests.cpp
         tests/measure/structural_measure_tests.cpp
         tests/measure/law_measure_tests.cpp
         tests/measure/repair_measure_tests.cpp
         tests/measure/history_measure_tests.cpp
+        tests/measure/measurement_store_tests.cpp
+        tests/measure/measurement_verifier_tests.cpp
         tests/measure/risk_functional_tests.cpp
         tests/audit/report_tests.cpp
         tests/law/law_tests.cpp

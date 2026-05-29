@@ -431,6 +431,14 @@ TEST_CASE("CLI ingest and audit commands produce reports") {
         + " && " + shell_quote(POINTERVERSE_CLI_PATH)
         + " measure export main --format json --store .pvstore >> " + shell_quote(report_path)
         + " && " + shell_quote(POINTERVERSE_CLI_PATH)
+        + " measure verify main --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH)
+        + " measure baseline create main --up-to HEAD --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH)
+        + " measure baseline show main --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH)
+        + " measure cache rebuild main --store .pvstore >> " + shell_quote(report_path)
+        + " && " + shell_quote(POINTERVERSE_CLI_PATH)
         + " audit timeline main Agent0 --store .pvstore >> " + shell_quote(report_path)
         + " && " + shell_quote(POINTERVERSE_CLI_PATH) + " repo fsck >> " + shell_quote(report_path);
 
@@ -442,6 +450,8 @@ TEST_CASE("CLI ingest and audit commands produce reports") {
     REQUIRE(report.find("no_pr_without_tests") != std::string::npos);
     REQUIRE(report.find("Measured risk: main") != std::string::npos);
     REQUIRE(report.find("\"measured_risks\"") != std::string::npos);
+    REQUIRE(report.find("Measurement verification") != std::string::npos);
+    REQUIRE(report.find("Measurement baseline: main") != std::string::npos);
     REQUIRE(report.find("\"violations\"") != std::string::npos);
     REQUIRE(report.find("Audit timeline: main Agent0") != std::string::npos);
     REQUIRE(report.find("status:             clean") != std::string::npos);
@@ -459,6 +469,8 @@ TEST_CASE("CLI guard run audits PR demo and enforces strict mode") {
     const auto report_path = repo_dir / "audit-report.md";
     const auto sarif_path = repo_dir / "audit.sarif";
     const auto strict_report_path = repo_dir / "strict.json";
+    const auto baseline_report_path = repo_dir / "baseline-guard.json";
+    const auto baseline_create_path = repo_dir / "baseline-create.txt";
     const auto store_path = repo_dir / "pvstore";
     const auto strict_store_path = repo_dir / "strict-pvstore";
     const auto multi_markdown_path = repo_dir / "multi-report.md";
@@ -508,6 +520,23 @@ TEST_CASE("CLI guard run audits PR demo and enforces strict mode") {
         + " history guard > " + shell_quote(history_report);
     REQUIRE(std::system(history_command.c_str()) == 0);
     REQUIRE(read_file(history_report).find("ingest git-diff") != std::string::npos);
+
+    const auto baseline_create_command =
+        shell_quote(POINTERVERSE_CLI_PATH)
+        + " measure baseline create guard --up-to HEAD --store " + shell_quote(store_path)
+        + " > " + shell_quote(baseline_create_path);
+    REQUIRE(std::system(baseline_create_command.c_str()) == 0);
+    REQUIRE(read_file(baseline_create_path).find("Measurement baseline: guard") != std::string::npos);
+
+    const auto baseline_guard_command =
+        shell_quote(POINTERVERSE_CLI_PATH)
+        + " guard run --repo " + shell_quote(demo_after)
+        + " --base ../before --mode observe --format json"
+        + " --baseline guard"
+        + " --out " + shell_quote(baseline_report_path)
+        + " --store " + shell_quote(store_path);
+    REQUIRE(std::system(baseline_guard_command.c_str()) == 0);
+    REQUIRE(read_file(baseline_report_path).find("\"baseline_hash\"") != std::string::npos);
 
     const auto strict_command =
         shell_quote(POINTERVERSE_CLI_PATH)

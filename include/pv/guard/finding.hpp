@@ -28,7 +28,7 @@ struct GuardFinding {
 };
 
 [[nodiscard]] std::string_view to_string(FindingSeverity severity) noexcept;
-[[deprecated("Use measured risk functional instead.")]]
+[[deprecated("Guard severity is a display label; use measured risk projection for decisions.")]]
 [[nodiscard]] int risk_points(FindingSeverity severity) noexcept;
 
 }  // namespace pv

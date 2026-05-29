@@ -12,6 +12,8 @@
 
 namespace pv {
 
+struct CalibrationBaseline;
+
 struct GuardStrictPolicy {
     bool fail_on_law_distance{true};
     bool fail_on_repair_distance{true};
@@ -26,6 +28,7 @@ struct GuardStrictDecision {
     bool repair_distance_failed{false};
     bool structural_failed{false};
     bool surprise_failed{false};
+    bool baseline_contaminated{false};
     std::uint64_t structural_threshold{0};
     std::uint64_t surprise_threshold{0};
     std::size_t calibration_commits{0};
@@ -37,6 +40,9 @@ struct GuardReport {
     std::string base;
     std::string head;
     std::string mode;
+    Hash256 measurement_spec_hash;
+    std::string baseline;
+    Hash256 baseline_hash;
     RiskVector measured_risk;
     std::uint64_t projected_score{0};
     std::vector<MeasuredRisk> measured_risks;
@@ -57,6 +63,9 @@ struct GuardReport {
 
 [[nodiscard]] int guard_risk_score(const std::vector<GuardFinding>& findings) noexcept;
 [[nodiscard]] std::string guard_status_for_risk(int risk_score);
+[[nodiscard]] GuardStrictDecision strict_decision_for(
+    const GuardReport& report,
+    const CalibrationBaseline* baseline = nullptr);
 [[nodiscard]] std::string render_guard_report_text(const GuardReport& report);
 [[nodiscard]] std::string render_guard_report_markdown(const GuardReport& report);
 [[nodiscard]] std::string render_guard_report_json(const GuardReport& report);

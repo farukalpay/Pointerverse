@@ -9,9 +9,11 @@
 #include <set>
 #include <sstream>
 #include <string_view>
+#include <utility>
 
 #include "pv/hash/canonical.hpp"
 #include "pv/law/law.hpp"
+#include "pv/measure/measurement_store.hpp"
 #include "pv/measure/risk_projection.hpp"
 #include "pv/runtime/transaction.hpp"
 #include "pv/storage/repository.hpp"
@@ -69,7 +71,12 @@ nlohmann::json evidence_json(const RiskEvidence& evidence) {
 nlohmann::json measured_risk_json(const MeasuredRisk& measured) {
     nlohmann::json json;
     json["commit"] = to_hex(measured.commit.value);
+    json["commit_root"] = to_hex(measured.commit_root);
+    json["spec_hash"] = to_hex(measured.spec_hash);
     json["risk"] = risk_vector_json(measured.value);
+    json["projection"] = measured.projection;
+    json["evidence_root"] = to_hex(measured.evidence_root);
+    json["measurement_object"] = to_hex(measured.measurement_object);
     json["measurement_hash"] = to_hex(measured.measurement_hash);
     json["evidence"] = nlohmann::json::array();
     for (const auto& evidence : measured.evidence) {
@@ -81,13 +88,17 @@ nlohmann::json measured_risk_json(const MeasuredRisk& measured) {
 }  // namespace
 
 AuditReport AuditReportGenerator::generate(
-    const Repository& repository,
+    Repository& repository,
     std::string_view branch) const {
     AuditReport report;
     report.branch = std::string{branch};
-    report.measured_risks = MeasuredRiskFunctional{}.measure_branch(repository, branch);
+    const auto spec = default_measurement_spec();
+    report.measurement_spec_hash = measurement_spec_hash(spec);
+    auto measured = MeasurementStore{repository}.measure_or_load_branch(branch, spec);
+    report.measured_risks = std::move(measured.measured);
     report.risk = joined_risk(report.measured_risks);
-    report.risk_score = static_cast<int>(std::min<std::uint64_t>(project(report.risk), 100));
+    report.projected_score = project(report.risk, spec.projection);
+    report.risk_score = static_cast<int>(std::min<std::uint64_t>(report.projected_score, 100));
 
     for (const auto& record : repository.history(branch)) {
         if (record.origin == TransactionOrigin::Internal) {
@@ -128,7 +139,7 @@ std::string render_audit_report_text(const AuditReport& report) {
         report.risk.law_distance,
         report.risk.repair_distance,
         report.risk.surprise);
-    output << fmt::format("projection: {}\n", report.risk_score);
+    output << fmt::format("projection: {}\n", report.projected_score);
     if (report.violations.empty()) {
         output << "\nno violations\n";
         return output.str();
@@ -195,6 +206,8 @@ std::string render_audit_report_json(const AuditReport& report) {
     json["branch"] = report.branch;
     json["commits_checked"] = report.commits_checked;
     json["risk_score"] = report.risk_score;
+    json["projected_score"] = report.projected_score;
+    json["measurement_spec_hash"] = to_hex(report.measurement_spec_hash);
     json["risk"] = risk_vector_json(report.risk);
     json["measured_risks"] = nlohmann::json::array();
     for (const auto& measured : report.measured_risks) {

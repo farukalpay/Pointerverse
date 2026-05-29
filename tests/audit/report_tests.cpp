@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 
@@ -8,9 +9,11 @@
 
 #include "pv/audit/report.hpp"
 #include "pv/audit/timeline.hpp"
+#include "pv/hash/canonical.hpp"
 #include "pv/ingest/agent_audit_adapter.hpp"
 #include "pv/ingest/ingestion_index.hpp"
 #include "pv/ingest/ingestion_pipeline.hpp"
+#include "pv/measure/risk_projection.hpp"
 #include "pv/storage/repository.hpp"
 
 using namespace pv;
@@ -54,7 +57,10 @@ TEST_CASE("audit report renders text and JSON from observed violations") {
     REQUIRE(report.violations.size() == 1);
     REQUIRE(report.violations.front().law == "no_pr_without_tests");
     REQUIRE(report.risk.law_distance == 1);
+    REQUIRE(report.projected_score == project(report.risk));
+    REQUIRE(report.risk_score == static_cast<int>(std::min<std::uint64_t>(report.projected_score, 100)));
     REQUIRE_FALSE(report.measured_risks.empty());
+    REQUIRE_FALSE(empty(report.measurement_spec_hash));
 
     const auto text = render_audit_report_text(report);
     REQUIRE(text.find("Audit report: main") != std::string::npos);
@@ -65,6 +71,8 @@ TEST_CASE("audit report renders text and JSON from observed violations") {
     REQUIRE(json["branch"] == "main");
     REQUIRE(json["commits_checked"] == 1);
     REQUIRE(json["risk"]["law_distance"] == 1);
+    REQUIRE(json["projected_score"] == report.projected_score);
+    REQUIRE(json["measurement_spec_hash"].get<std::string>().size() == 64);
     REQUIRE(json["measured_risks"].size() == 1);
     REQUIRE(json["violations"].size() == 1);
     REQUIRE(json["violations"][0]["severity"] == "error");

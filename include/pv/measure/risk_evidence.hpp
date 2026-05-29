@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -12,6 +14,9 @@
 #include "pv/runtime/ids.hpp"
 
 namespace pv {
+
+class CanonicalReader;
+class CanonicalWriter;
 
 struct RiskEvidence {
     std::string component;
@@ -31,6 +36,8 @@ struct MeasuredComponent {
 };
 
 [[nodiscard]] Hash256 risk_evidence_hash(RiskEvidence evidence);
+void encode(CanonicalWriter& writer, const RiskEvidence& evidence);
+[[nodiscard]] RiskEvidence decode_risk_evidence(CanonicalReader& reader);
+[[nodiscard]] RiskEvidence decode_risk_evidence_bytes(std::span<const std::byte> bytes);
 
 }  // namespace pv
-

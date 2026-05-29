@@ -92,7 +92,12 @@ nlohmann::json evidence_json(const RiskEvidence& evidence) {
 nlohmann::json measured_risk_json(const MeasuredRisk& measured) {
     nlohmann::json json;
     json["commit"] = to_hex(measured.commit.value);
+    json["commit_root"] = to_hex(measured.commit_root);
+    json["spec_hash"] = to_hex(measured.spec_hash);
     json["risk"] = risk_vector_json(measured.value);
+    json["projection"] = measured.projection;
+    json["evidence_root"] = to_hex(measured.evidence_root);
+    json["measurement_object"] = to_hex(measured.measurement_object);
     json["measurement_hash"] = to_hex(measured.measurement_hash);
     json["evidence"] = nlohmann::json::array();
     for (const auto& evidence : measured.evidence) {
@@ -118,6 +123,7 @@ nlohmann::json strict_decision_json(const GuardStrictDecision& decision) {
         {"repair_distance_failed", decision.repair_distance_failed},
         {"structural_failed", decision.structural_failed},
         {"surprise_failed", decision.surprise_failed},
+        {"baseline_contaminated", decision.baseline_contaminated},
         {"structural_threshold", decision.structural_threshold},
         {"surprise_threshold", decision.surprise_threshold},
         {"calibration_commits", decision.calibration_commits},
@@ -188,6 +194,10 @@ std::string render_guard_report_text(const GuardReport& report) {
         report.measured_risk.repair_distance,
         report.measured_risk.surprise);
     output << fmt::format("projection: {}\n", report.projected_score);
+    output << fmt::format("measurement spec: {}\n", to_hex(report.measurement_spec_hash).substr(0, 12));
+    if (!empty(report.baseline_hash)) {
+        output << fmt::format("baseline: {} {}\n", report.baseline, to_hex(report.baseline_hash).substr(0, 12));
+    }
     output << fmt::format("status: {}\n", report.status);
     output << fmt::format("changed files: {}\n", report.changed_files);
     output << fmt::format("diff: +{} -{}\n", report.additions, report.deletions);
@@ -231,6 +241,10 @@ std::string render_guard_report_markdown(const GuardReport& report) {
         report.measured_risk.repair_distance,
         report.measured_risk.surprise);
     output << fmt::format("Projection: **{}**\n", report.projected_score);
+    output << fmt::format("Measurement spec: `{}`\n", to_hex(report.measurement_spec_hash).substr(0, 12));
+    if (!empty(report.baseline_hash)) {
+        output << fmt::format("Baseline: **{}** `{}`\n", report.baseline, to_hex(report.baseline_hash).substr(0, 12));
+    }
     output << fmt::format("Status: **{}**\n", report.status);
     output << fmt::format("Changed files: **{}**\n", report.changed_files);
     output << fmt::format("Diff: **+{} -{}**\n\n", report.additions, report.deletions);
@@ -272,6 +286,9 @@ std::string render_guard_report_json(const GuardReport& report) {
     json["head"] = report.head;
     json["mode"] = report.mode;
     json["risk_score"] = report.risk_score;
+    json["measurement_spec_hash"] = to_hex(report.measurement_spec_hash);
+    json["baseline"] = report.baseline;
+    json["baseline_hash"] = empty(report.baseline_hash) ? "" : to_hex(report.baseline_hash);
     json["measured_risk"] = risk_vector_json(report.measured_risk);
     json["projected_score"] = report.projected_score;
     json["strict_policy"] = strict_policy_json(report.strict_policy);

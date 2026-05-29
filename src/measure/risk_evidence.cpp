@@ -49,15 +49,27 @@ void write_commit(CanonicalWriter& writer, CommitId id) {
     writer.hash(id.value);
 }
 
+ObjectId read_object(CanonicalReader& reader) {
+    return ObjectId{reader.u32(), reader.u32()};
+}
+
+PointerId read_pointer(CanonicalReader& reader) {
+    return PointerId{reader.u64()};
+}
+
+CommitId read_commit(CanonicalReader& reader) {
+    return CommitId{reader.hash()};
+}
+
 }  // namespace
 
-Hash256 risk_evidence_hash(RiskEvidence evidence) {
+void encode(CanonicalWriter& writer, const RiskEvidence& value) {
+    auto evidence = value;
     sort_objects(evidence.objects);
     sort_pointers(evidence.pointers);
     sort_commits(evidence.commits);
     sort_laws(evidence.laws);
 
-    CanonicalWriter writer;
     writer.string("RiskEvidence:v1");
     writer.string(evidence.component);
     writer.hash(evidence.input_root);
@@ -79,8 +91,54 @@ Hash256 risk_evidence_hash(RiskEvidence evidence) {
         writer.string(law);
     }
     writer.string(evidence.explanation);
+}
+
+RiskEvidence decode_risk_evidence(CanonicalReader& reader) {
+    reader.expect_tag("RiskEvidence:v1");
+    RiskEvidence evidence;
+    evidence.component = reader.string();
+    evidence.input_root = reader.hash();
+    evidence.output_root = reader.hash();
+
+    const auto object_count = reader.u64();
+    evidence.objects.reserve(static_cast<std::size_t>(object_count));
+    for (std::uint64_t index = 0; index < object_count; ++index) {
+        evidence.objects.push_back(read_object(reader));
+    }
+
+    const auto pointer_count = reader.u64();
+    evidence.pointers.reserve(static_cast<std::size_t>(pointer_count));
+    for (std::uint64_t index = 0; index < pointer_count; ++index) {
+        evidence.pointers.push_back(read_pointer(reader));
+    }
+
+    const auto commit_count = reader.u64();
+    evidence.commits.reserve(static_cast<std::size_t>(commit_count));
+    for (std::uint64_t index = 0; index < commit_count; ++index) {
+        evidence.commits.push_back(read_commit(reader));
+    }
+
+    const auto law_count = reader.u64();
+    evidence.laws.reserve(static_cast<std::size_t>(law_count));
+    for (std::uint64_t index = 0; index < law_count; ++index) {
+        evidence.laws.push_back(reader.string());
+    }
+
+    evidence.explanation = reader.string();
+    return evidence;
+}
+
+RiskEvidence decode_risk_evidence_bytes(std::span<const std::byte> bytes) {
+    CanonicalReader reader{bytes};
+    auto evidence = decode_risk_evidence(reader);
+    reader.expect_end();
+    return evidence;
+}
+
+Hash256 risk_evidence_hash(RiskEvidence evidence) {
+    CanonicalWriter writer;
+    encode(writer, evidence);
     return sha256(writer.bytes());
 }
 
 }  // namespace pv
-

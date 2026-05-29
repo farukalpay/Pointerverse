@@ -5,6 +5,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -17,6 +18,9 @@
 #include "pv/guard/policy_pack.hpp"
 #include "pv/ingest/agent_audit_adapter.hpp"
 #include "pv/ingest/ingestion_index.hpp"
+#include "pv/measure/calibration.hpp"
+#include "pv/measure/measurement_store.hpp"
+#include "pv/measure/measurement_spec.hpp"
 #include "pv/measure/risk_projection.hpp"
 #include "pv/rule/rule_engine.hpp"
 #include "pv/runtime/transaction.hpp"
@@ -88,6 +92,19 @@ std::vector<CommitId> evidence_commits(const Repository& repository, std::string
     return out;
 }
 
+std::vector<CommitId> measured_history_ids(const Repository& repository, std::string_view branch) {
+    std::vector<CommitId> out;
+    if (!repository.has_branch(branch)) {
+        return out;
+    }
+    for (const auto& record : repository.history(branch)) {
+        if (record.origin != TransactionOrigin::Internal) {
+            out.push_back(record.id);
+        }
+    }
+    return out;
+}
+
 void attach_commits(std::vector<GuardFinding>& findings, const std::vector<CommitId>& commits) {
     for (auto& finding : findings) {
         finding.evidence_commits = commits;
@@ -150,9 +167,10 @@ std::uint64_t percentile_threshold(std::vector<std::uint64_t> values, double per
     return values[std::min(index - 1U, values.size() - 1U)];
 }
 
-GuardStrictDecision strict_decision_for(const GuardReport& report) {
+GuardStrictDecision strict_decision_for_baseline(
+    const GuardReport& report,
+    const CalibrationBaseline* baseline) {
     GuardStrictDecision decision;
-    decision.calibration_commits = report.measured_risks.size();
     if (report.strict_policy.fail_on_law_distance && report.measured_risk.law_distance > 0) {
         decision.law_distance_failed = true;
     }
@@ -160,34 +178,61 @@ GuardStrictDecision strict_decision_for(const GuardReport& report) {
         decision.repair_distance_failed = true;
     }
 
-    if (report.measured_risks.size() >= report.strict_policy.min_history_commits_for_calibration) {
+    if (baseline == nullptr) {
+        decision.warnings.push_back("structural/surprise calibration unavailable: no frozen baseline supplied");
+    } else if (baseline->spec_hash != report.measurement_spec_hash) {
+        decision.warnings.push_back("calibration baseline spec does not match current measurement spec");
+        decision.failed = true;
+    } else {
+        decision.calibration_commits = baseline->sample.size();
+        for (const auto& measured : report.measured_risks) {
+            if (calibration_contains_commit(*baseline, measured.commit)) {
+                decision.baseline_contaminated = true;
+                decision.warnings.push_back(
+                    "calibration baseline contains a current target commit: "
+                    + to_hex(measured.commit.value).substr(0, 12));
+            }
+        }
+    }
+
+    if (baseline != nullptr
+        && baseline->spec_hash == report.measurement_spec_hash
+        && baseline->sample.size() >= report.strict_policy.min_history_commits_for_calibration) {
         std::vector<std::uint64_t> structural;
         std::vector<std::uint64_t> surprise;
-        structural.reserve(report.measured_risks.size());
-        surprise.reserve(report.measured_risks.size());
-        for (const auto& measured : report.measured_risks) {
-            structural.push_back(measured.value.structural);
-            surprise.push_back(measured.value.surprise);
+        structural.reserve(baseline->sample.size());
+        surprise.reserve(baseline->sample.size());
+        for (const auto& entry : baseline->sample) {
+            structural.push_back(entry.risk.structural);
+            surprise.push_back(entry.risk.surprise);
         }
         decision.structural_threshold = percentile_threshold(structural, report.strict_policy.structural_percentile);
         decision.surprise_threshold = percentile_threshold(surprise, report.strict_policy.surprise_percentile);
         decision.structural_failed = report.measured_risk.structural > decision.structural_threshold;
         decision.surprise_failed = report.measured_risk.surprise > decision.surprise_threshold;
-    } else {
+    } else if (baseline != nullptr && baseline->spec_hash == report.measurement_spec_hash) {
         decision.warnings.push_back(fmt::format(
             "structural/surprise calibration unavailable: need {} commits, have {}",
             report.strict_policy.min_history_commits_for_calibration,
-            report.measured_risks.size()));
+            baseline->sample.size()));
     }
 
     decision.failed = decision.law_distance_failed
         || decision.repair_distance_failed
         || decision.structural_failed
-        || decision.surprise_failed;
+        || decision.surprise_failed
+        || decision.baseline_contaminated
+        || decision.failed;
     return decision;
 }
 
 }  // namespace
+
+GuardStrictDecision strict_decision_for(
+    const GuardReport& report,
+    const CalibrationBaseline* baseline) {
+    return strict_decision_for_baseline(report, baseline);
+}
 
 bool guard_strict_failed(const GuardReport& report) noexcept {
     return report.strict_decision.failed
@@ -204,6 +249,7 @@ GuardRunResult run_guard(const GuardRunOptions& options) {
     const auto events = evidence_from_git_diff(entries);
 
     auto repository = open_or_init_repository(store);
+    const auto previous_history = measured_history_ids(repository, options.branch);
     IngestionIndex index{repository.root()};
     IngestionOptions ingestion_options;
     ingestion_options.branch = options.branch;
@@ -215,13 +261,28 @@ GuardRunResult run_guard(const GuardRunOptions& options) {
     const auto commits = evidence_commits(repository, options.branch);
     attach_commits(findings, commits);
     auto measure_verifier = guard_measure_verifier();
-    auto measured = MeasuredRiskFunctional{}.measure_branch(repository, options.branch, &measure_verifier);
+    const auto measurement_spec = agent_audit_measurement_spec();
+    auto measurement_store = MeasurementStore{repository};
+    auto measured = measurement_store.measure_new_commits(
+        options.branch,
+        previous_history,
+        measurement_spec,
+        &measure_verifier);
+    std::optional<CalibrationBaseline> baseline;
+    if (!options.baseline.empty()) {
+        baseline = CalibrationStore{repository}.load(options.baseline);
+    }
 
     GuardReport report;
     report.repo = repo.string();
     report.base = options.base;
     report.head = options.head;
     report.mode = options.mode;
+    report.measurement_spec_hash = measurement_spec_hash(measurement_spec);
+    report.baseline = options.baseline;
+    if (baseline.has_value()) {
+        report.baseline_hash = baseline->baseline_hash;
+    }
     report.changed_files = entries.size();
     for (const auto& entry : entries) {
         report.additions += entry.additions;
@@ -232,12 +293,12 @@ GuardRunResult run_guard(const GuardRunOptions& options) {
     report.affected_files = affected_files(entries);
     report.findings = std::move(findings);
     report.evidence_commits = commits;
-    report.measured_risks = std::move(measured);
+    report.measured_risks = std::move(measured.measured);
     report.measured_risk = joined_risk(report.measured_risks);
-    report.projected_score = project(report.measured_risk);
+    report.projected_score = project(report.measured_risk, measurement_spec.projection);
     report.risk_score = static_cast<int>(std::min<std::uint64_t>(report.projected_score, 100));
     report.strict_policy = options.strict_policy;
-    report.strict_decision = strict_decision_for(report);
+    report.strict_decision = strict_decision_for(report, baseline.has_value() ? &*baseline : nullptr);
     report.status = report.strict_decision.failed ? "risky" : guard_status_for_risk(report.risk_score);
 
     if (options.write_default_artifacts) {

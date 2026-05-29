@@ -25,6 +25,7 @@ public:
         run_->add_option("--head", head_, "Head git ref")->default_val("HEAD");
         run_->add_option("--mode", mode_, "observe | strict")->default_val("observe");
         run_->add_option("--format", format_, "text | json | markdown | sarif")->default_val("text");
+        run_->add_option("--baseline", baseline_, "Frozen measurement baseline name for strict calibration");
         out_option_ = run_->add_option("--out", out_path_, "Report output path");
         markdown_out_option_ = run_->add_option("--markdown-out", markdown_out_path_, "Markdown report output path");
         json_out_option_ = run_->add_option("--json-out", json_out_path_, "JSON report output path");
@@ -43,6 +44,7 @@ public:
             options.head = head_;
             options.mode = mode_;
             options.format = format_;
+            options.baseline = baseline_;
             options.store = store_path_;
             options.out = out_path_;
             options.markdown_out = markdown_out_path_;
@@ -73,6 +75,7 @@ private:
     std::string head_{"HEAD"};
     std::string mode_{"observe"};
     std::string format_{"text"};
+    std::string baseline_;
     std::string out_path_;
     std::string markdown_out_path_;
     std::string json_out_path_;
