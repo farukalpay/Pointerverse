@@ -8,6 +8,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "pv/hash/hasher.hpp"
@@ -80,6 +81,27 @@ WorldSnapshot before_snapshot_for(const Repository& repository, const CommitReco
     before.world_name = after.world_name;
     before.epoch = record.before_epoch;
     return before;
+}
+
+struct RepairProblem {
+    CommitRecord record;
+    WorldSnapshot before;
+    WorldSnapshot target;
+};
+
+RepairProblem repair_problem_for(const Repository& repository, CommitId commit) {
+    auto record = repository.backend().commit_record(commit);
+    const auto stored = repository.backend().stored_commit(commit);
+    const auto delta = repository.objects().get_canonical<Delta>(stored.delta_object);
+    auto target = repository.backend().snapshot(commit);
+    const auto before = before_snapshot_for(repository, record, target);
+    if (!record.accepted) {
+        target = before;
+        if (const auto predicted = apply_delta_to_snapshot(before, delta); predicted.has_value()) {
+            target = *predicted;
+        }
+    }
+    return RepairProblem{std::move(record), before, std::move(target)};
 }
 
 bool legal_state(const Verifier& verifier, const WorldSnapshot& before, const WorldSnapshot& after) {
@@ -278,6 +300,113 @@ std::uint64_t expansion_limit(RepairSearchOptions options) noexcept {
     return depth * options.max_candidates;
 }
 
+std::string_view repair_status_text(RepairSolveStatus status) noexcept {
+    switch (status) {
+    case RepairSolveStatus::Accepted:
+        return "accepted legal state; minimum bounded repair depth: 0";
+    case RepairSolveStatus::VerifierUnavailable:
+        return "bounded repair search unavailable because verifier was not supplied";
+    case RepairSolveStatus::Found:
+        return "minimum bounded repair depth found";
+    case RepairSolveStatus::Exhausted:
+        return "bounded canonical repair basis exhausted";
+    }
+    return "bounded canonical repair basis exhausted";
+}
+
+std::uint32_t explanation_depth(const RepairSolveResult& result, RepairSearchOptions options) noexcept {
+    if (result.status == RepairSolveStatus::Found || result.status == RepairSolveStatus::Accepted) {
+        return result.depth;
+    }
+    return options.max_depth;
+}
+
+RepairSolveResult solve_repair(
+    RepairBasis basis,
+    const CommitRecord& record,
+    const WorldSnapshot& before,
+    const WorldSnapshot& target,
+    const Verifier* verifier,
+    RepairSearchOptions options) {
+    RepairSolveResult result;
+    result.basis = std::move(basis);
+
+    if (record.violations.empty()) {
+        return result;
+    }
+    if (verifier == nullptr) {
+        result.status = RepairSolveStatus::VerifierUnavailable;
+        result.depth = options.max_depth + 1U;
+        return result;
+    }
+    if (legal_state(*verifier, before, target)) {
+        return result;
+    }
+
+    struct Node {
+        WorldSnapshot snapshot;
+        Delta witness_delta;
+        std::uint32_t depth{0};
+        std::vector<Hash256> witness_ops;
+    };
+
+    std::deque<Node> queue;
+    std::set<std::string> seen_snapshots;
+    queue.push_back(Node{target, {}, 0, {}});
+    seen_snapshots.insert(to_hex(target.canonical_hash()));
+    result.frontier_size = queue.size();
+    std::uint64_t expansions = 0;
+    const auto max_expansions = expansion_limit(options);
+
+    while (!queue.empty()) {
+        result.frontier_size = std::max(result.frontier_size, queue.size());
+        auto node = std::move(queue.front());
+        queue.pop_front();
+        if (node.depth >= options.max_depth) {
+            continue;
+        }
+        for (const auto& op : result.basis.operators) {
+            if (max_expansions > 0 && expansions >= max_expansions) {
+                result.status = RepairSolveStatus::Exhausted;
+                result.depth = options.max_depth + 1U;
+                return result;
+            }
+            expansions += 1;
+
+            const auto next = apply_delta_to_snapshot(node.snapshot, op.delta);
+            if (!next.has_value()) {
+                continue;
+            }
+            auto merged = merge_sequential(target, node.witness_delta, op.delta);
+            if (!merged.has_value()) {
+                continue;
+            }
+            const auto hash = to_hex(next->canonical_hash());
+            if (!seen_snapshots.insert(hash).second) {
+                continue;
+            }
+            auto witness_ops = node.witness_ops;
+            witness_ops.push_back(repair_operator_hash(op));
+            const auto next_depth = node.depth + 1U;
+
+            if (legal_state(*verifier, before, *next)) {
+                result.status = RepairSolveStatus::Found;
+                result.depth = next_depth;
+                result.witness.delta = std::move(*merged);
+                result.witness.operation_hashes = std::move(witness_ops);
+                result.witness.operation_batch_hash = repair_operation_batch_hash(result.witness.operation_hashes);
+                return result;
+            }
+
+            queue.push_back(Node{*next, std::move(*merged), next_depth, std::move(witness_ops)});
+        }
+    }
+
+    result.status = RepairSolveStatus::Exhausted;
+    result.depth = options.max_depth + 1U;
+    return result;
+}
+
 }  // namespace
 
 Hash256 repair_operator_hash(const RepairOperator& op) {
@@ -316,6 +445,26 @@ Hash256 repair_operation_batch_hash(std::vector<Hash256> operations) {
     return sha256(writer.bytes());
 }
 
+RepairSolveResult RepairSolver::solve(
+    const Repository& repository,
+    std::string_view,
+    CommitId commit,
+    const Verifier& verifier,
+    RepairSearchOptions options) const {
+    return solve(repository, {}, commit, &verifier, options);
+}
+
+RepairSolveResult RepairSolver::solve(
+    const Repository& repository,
+    std::string_view,
+    CommitId commit,
+    const Verifier* verifier,
+    RepairSearchOptions options) const {
+    const auto problem = repair_problem_for(repository, commit);
+    auto basis = canonical_repair_basis(problem.record, problem.before, problem.target, options.max_candidates);
+    return solve_repair(std::move(basis), problem.record, problem.before, problem.target, verifier, options);
+}
+
 MeasuredComponent RepairDistanceMeasure::measure(
     const Repository& repository,
     std::string_view,
@@ -331,119 +480,28 @@ MeasuredComponent RepairDistanceMeasure::measure(
     CommitId commit,
     const Verifier* verifier,
     RepairSearchOptions options) const {
-    const auto record = repository.backend().commit_record(commit);
-    const auto stored = repository.backend().stored_commit(commit);
-    const auto delta = repository.objects().get_canonical<Delta>(stored.delta_object);
-    auto target = repository.backend().snapshot(commit);
-    const auto before = before_snapshot_for(repository, record, target);
-    if (!record.accepted) {
-        target = before;
-    }
-    if (!record.accepted) {
-        if (const auto predicted = apply_delta_to_snapshot(before, delta); predicted.has_value()) {
-            target = *predicted;
-        }
-    }
-
-    const auto basis = canonical_repair_basis(record, before, target, options.max_candidates);
+    const auto problem = repair_problem_for(repository, commit);
+    auto basis = canonical_repair_basis(problem.record, problem.before, problem.target, options.max_candidates);
+    const auto solved = solve_repair(std::move(basis), problem.record, problem.before, problem.target, verifier, options);
 
     MeasuredComponent component;
     component.namespace_id = "repair";
     component.functional_id = "distance";
     component.name = "repair.distance";
     component.evidence.component = component.name;
-    component.evidence.input_root = record.before_root;
-    component.evidence.output_root = target.canonical_hash();
+    component.evidence.input_root = problem.record.before_root;
+    component.evidence.output_root = problem.target.canonical_hash();
     component.evidence.commits.push_back(commit);
-    component.evidence.objects = violation_objects(record);
-    component.evidence.pointers = violation_pointers(record);
-    component.evidence.laws = violation_laws(record);
-
-    if (record.violations.empty()) {
-        component.evidence.explanation = repair_explanation(basis, 0, 0, {}, "accepted legal state; minimum bounded repair depth: 0");
-        return component;
-    }
-    if (verifier == nullptr) {
-        component.value = static_cast<std::uint64_t>(options.max_depth) + 1U;
-        component.evidence.explanation = repair_explanation(
-            basis,
-            options.max_depth,
-            0,
-            {},
-            "bounded repair search unavailable because verifier was not supplied");
-        return component;
-    }
-    if (legal_state(*verifier, before, target)) {
-        component.evidence.explanation = repair_explanation(basis, 0, 0, {}, "accepted legal state; minimum bounded repair depth: 0");
-        return component;
-    }
-
-    struct Node {
-        WorldSnapshot snapshot;
-        std::uint32_t depth{0};
-        std::vector<Hash256> witness_ops;
-    };
-
-    std::deque<Node> queue;
-    std::set<std::string> seen_snapshots;
-    queue.push_back(Node{target, 0, {}});
-    seen_snapshots.insert(to_hex(target.canonical_hash()));
-    std::size_t frontier_size = queue.size();
-    std::uint64_t expansions = 0;
-    const auto max_expansions = expansion_limit(options);
-
-    while (!queue.empty()) {
-        frontier_size = std::max(frontier_size, queue.size());
-        const auto node = std::move(queue.front());
-        queue.pop_front();
-        if (node.depth >= options.max_depth) {
-            continue;
-        }
-        for (const auto& op : basis.operators) {
-            if (max_expansions > 0 && expansions >= max_expansions) {
-                component.value = static_cast<std::uint64_t>(options.max_depth) + 1U;
-                component.evidence.explanation = repair_explanation(
-                    basis,
-                    options.max_depth,
-                    frontier_size,
-                    {},
-                    "bounded canonical repair basis exhausted");
-                return component;
-            }
-            expansions += 1;
-            const auto next = apply_delta_to_snapshot(node.snapshot, op.delta);
-            if (!next.has_value()) {
-                continue;
-            }
-            const auto hash = to_hex(next->canonical_hash());
-            if (!seen_snapshots.insert(hash).second) {
-                continue;
-            }
-            auto witness_ops = node.witness_ops;
-            witness_ops.push_back(repair_operator_hash(op));
-            const auto next_depth = node.depth + 1U;
-            if (legal_state(*verifier, before, *next)) {
-                const auto witness_hash = repair_operation_batch_hash(witness_ops);
-                component.value = next_depth;
-                component.evidence.explanation = repair_explanation(
-                    basis,
-                    next_depth,
-                    frontier_size,
-                    witness_hash,
-                    "minimum bounded repair depth found");
-                return component;
-            }
-            queue.push_back(Node{*next, next_depth, std::move(witness_ops)});
-        }
-    }
-
-    component.value = static_cast<std::uint64_t>(options.max_depth) + 1U;
+    component.evidence.objects = violation_objects(problem.record);
+    component.evidence.pointers = violation_pointers(problem.record);
+    component.evidence.laws = violation_laws(problem.record);
+    component.value = solved.depth;
     component.evidence.explanation = repair_explanation(
-        basis,
-        options.max_depth,
-        frontier_size,
-        {},
-        "bounded canonical repair basis exhausted");
+        solved.basis,
+        explanation_depth(solved, options),
+        solved.frontier_size,
+        solved.witness.operation_batch_hash,
+        repair_status_text(solved.status));
     return component;
 }
 

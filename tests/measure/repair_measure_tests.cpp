@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <variant>
 
 #include "pv/core/world.hpp"
 #include "pv/measure/repair_measure.hpp"
@@ -57,6 +58,63 @@ TEST_CASE("repair distance is zero for legal state and positive for illegal stat
     REQUIRE(illegal_repair.value > 0);
     REQUIRE(illegal_repair.evidence.explanation.find("repair basis hash:") != std::string::npos);
     REQUIRE(illegal_repair.evidence.explanation.find("minimum witness operation batch hash:") != std::string::npos);
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("repair solver returns minimum legal witness delta for illegal state") {
+    const auto root = temp_repo_path("solver_witness");
+    auto repo = Repository::init(root);
+    (void)repo.create_branch("main", World{"seed"});
+
+    Verifier observe{VerificationMode::Observe};
+    observe.add_builtin("bounded_weight");
+
+    REQUIRE(repo.commit("main", object_tx(repo.mutable_world("main"), "A"), observe).has_value());
+    REQUIRE(repo.commit("main", object_tx(repo.mutable_world("main"), "B"), observe).has_value());
+    const auto illegal = repo.commit("main", link_tx(repo.mutable_world("main"), 1.5), observe);
+    REQUIRE(illegal.has_value());
+    REQUIRE_FALSE(illegal->violations.empty());
+
+    const auto solved = RepairSolver{}.solve(repo, "main", illegal->id, observe);
+
+    REQUIRE(solved.status == RepairSolveStatus::Found);
+    REQUIRE(solved.depth == 1);
+    REQUIRE(solved.witness.delta.ops.size() == 1);
+    REQUIRE(solved.witness.operation_hashes.size() == 1);
+    REQUIRE(solved.witness.operation_batch_hash == repair_operation_batch_hash(solved.witness.operation_hashes));
+
+    const auto& op = solved.witness.delta.ops.front();
+    REQUIRE(op.kind == OperationKind::SetPointerWeight);
+    const auto& weight = std::get<SetPointerWeightOp>(op.body);
+    REQUIRE(weight.weight.value == 1.0);
+
+    const auto target = repo.backend().snapshot(illegal->id);
+    const auto repaired = apply_delta_to_snapshot(target, solved.witness.delta);
+    REQUIRE(repaired.has_value());
+    const auto repaired_check = observe.check(LawCheckContext{target, solved.witness.delta, *repaired});
+    REQUIRE(repaired_check.violations.empty());
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("repair solver returns empty witness for legal state") {
+    const auto root = temp_repo_path("solver_legal");
+    auto repo = Repository::init(root);
+    (void)repo.create_branch("main", World{"seed"});
+
+    Verifier observe{VerificationMode::Observe};
+    observe.add_builtin("bounded_weight");
+
+    const auto clean = repo.commit("main", object_tx(repo.mutable_world("main"), "A"), observe);
+    REQUIRE(clean.has_value());
+
+    const auto solved = RepairSolver{}.solve(repo, "main", clean->id, observe);
+
+    REQUIRE(solved.status == RepairSolveStatus::Accepted);
+    REQUIRE(solved.depth == 0);
+    REQUIRE(solved.witness.delta.empty());
+    REQUIRE(solved.witness.operation_hashes.empty());
 
     std::filesystem::remove_all(root);
 }

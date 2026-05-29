@@ -2,8 +2,8 @@
 #pragma once
 
 #include <cstdint>
-#include <string_view>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "pv/core/delta.hpp"
@@ -34,9 +34,47 @@ struct RepairBasis {
     Hash256 basis_hash;
 };
 
+enum class RepairSolveStatus {
+    Accepted,
+    VerifierUnavailable,
+    Found,
+    Exhausted
+};
+
+struct RepairWitness {
+    Delta delta;
+    std::vector<Hash256> operation_hashes;
+    Hash256 operation_batch_hash;
+};
+
+struct RepairSolveResult {
+    RepairBasis basis;
+    RepairWitness witness;
+    RepairSolveStatus status{RepairSolveStatus::Accepted};
+    std::uint32_t depth{0};
+    std::size_t frontier_size{0};
+};
+
 [[nodiscard]] Hash256 repair_operator_hash(const RepairOperator& op);
 [[nodiscard]] Hash256 repair_basis_hash(RepairBasis basis);
 [[nodiscard]] Hash256 repair_operation_batch_hash(std::vector<Hash256> operations);
+
+class RepairSolver {
+public:
+    [[nodiscard]] RepairSolveResult solve(
+        const Repository& repository,
+        std::string_view branch,
+        CommitId commit,
+        const Verifier* verifier,
+        RepairSearchOptions options = {}) const;
+
+    [[nodiscard]] RepairSolveResult solve(
+        const Repository& repository,
+        std::string_view branch,
+        CommitId commit,
+        const Verifier& verifier,
+        RepairSearchOptions options = {}) const;
+};
 
 class RepairDistanceMeasure {
 public:
