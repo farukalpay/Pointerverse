@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -35,6 +36,32 @@ std::vector<std::byte> read_raw_bytes(const std::filesystem::path& path) {
 
 void add_error(IntegrityReport& report, std::string message) {
     report.errors.push_back(IntegrityError{std::move(message)});
+}
+
+struct SnapshotCache {
+    const WorldSnapshot& snapshot(const Repository& repo, CommitId id) {
+        const auto key = to_hex(id.value);
+        const auto found = commit_snapshots.find(key);
+        if (found != commit_snapshots.end()) {
+            return found->second;
+        }
+        auto [iter, inserted] = commit_snapshots.emplace(key, repo.backend().snapshot(id));
+        (void)inserted;
+        return iter->second;
+    }
+
+    std::map<std::string, WorldSnapshot> commit_snapshots;
+};
+
+const WorldSnapshot& before_snapshot_for(const Repository& repo, const CommitRecord& record, SnapshotCache& cache) {
+    if (!record.parents.empty()) {
+        return cache.snapshot(repo, record.parents.front());
+    }
+    return cache.snapshot(repo, record.id);
+}
+
+const WorldSnapshot& after_snapshot_for(const Repository& repo, const CommitRecord& record, SnapshotCache& cache) {
+    return cache.snapshot(repo, record.id);
 }
 
 Hash256 law_output_root(const std::vector<LawStatus>& statuses, const std::vector<LawViolation>& violations) {
@@ -74,7 +101,12 @@ void check_object_store(const Repository& repo, IntegrityReport& report) {
     }
 }
 
-void check_program_replay(const Repository& repo, const StoredCommit& stored, const CommitRecord& record, IntegrityReport& report) {
+void check_program_replay(
+    const Repository& repo,
+    const StoredCommit& stored,
+    const CommitRecord& record,
+    const WorldSnapshot& before,
+    IntegrityReport& report) {
     if (empty(record.program_hash)) {
         return;
     }
@@ -86,7 +118,6 @@ void check_program_replay(const Repository& repo, const StoredCommit& stored, co
         add_error(report, "commit program object missing: " + to_hex(record.id.value));
         return;
     }
-    const auto before = repo.objects().get_canonical<WorldSnapshot>(stored.before_snapshot_object);
     const auto program = repo.objects().get_canonical<Program>(stored.program_object);
     if (program_hash(program) != record.program_hash) {
         add_error(report, "commit program hash mismatch: " + to_hex(record.id.value));
@@ -108,9 +139,9 @@ void check_program_replay(const Repository& repo, const StoredCommit& stored, co
 }
 
 void check_commit_proof(
-    const Repository& repo,
-    const StoredCommit& stored,
     const CommitRecord& record,
+    const Hash256& before_root,
+    const Hash256& after_root,
     const std::vector<LawStatus>& statuses,
     const std::vector<LawViolation>& violations,
     IntegrityReport& report) {
@@ -118,19 +149,17 @@ void check_commit_proof(
         return;
     }
 
-    const auto before = repo.objects().get_canonical<WorldSnapshot>(stored.before_snapshot_object);
-    const auto after = repo.objects().get_canonical<WorldSnapshot>(stored.after_snapshot_object);
     const auto proof_hash = hash_commit_proof(*record.proof);
     if (proof_hash != record.proof_hash) {
         add_error(report, "commit proof hash mismatch: " + to_hex(record.id.value));
     }
-    if (record.proof->before_root != compute_world_root(before).root) {
+    if (record.proof->before_root != before_root) {
         add_error(report, "commit proof before root mismatch: " + to_hex(record.id.value));
     }
     if (record.proof->program_root != record.program_hash) {
         add_error(report, "commit proof program root mismatch: " + to_hex(record.id.value));
     }
-    if (record.proof->after_root != compute_world_root(after).root) {
+    if (record.proof->after_root != after_root) {
         add_error(report, "commit proof after root mismatch: " + to_hex(record.id.value));
     }
     if (record.proof->operation_root != record.delta_hash) {
@@ -151,12 +180,14 @@ void check_commit(
     const Repository& repo,
     const CommitRecord& record,
     const std::set<std::string>& known_commits,
+    SnapshotCache& cache,
     IntegrityReport& report) {
     report.commits_checked += 1;
     try {
         auto stored = repo.objects().get_canonical<StoredCommit>(record.id.value);
         stored.record.id = record.id;
-        if (make_commit_id(stored.record) != record.id) {
+        const auto identity = stored_commit_identity(stored);
+        if (identity.valid() && identity != record.id) {
             add_error(report, "commit id does not match canonical record: " + to_hex(record.id.value));
         }
         for (const auto& parent : record.parents) {
@@ -165,14 +196,22 @@ void check_commit(
             }
         }
 
-        const auto before = repo.objects().get_canonical<WorldSnapshot>(stored.before_snapshot_object);
-        const auto after = repo.objects().get_canonical<WorldSnapshot>(stored.after_snapshot_object);
+        const auto& before = before_snapshot_for(repo, record, cache);
+        const auto& after = after_snapshot_for(repo, record, cache);
         report.snapshots_checked += 2;
         if (before.canonical_hash() != record.before_hash) {
             add_error(report, "commit before snapshot hash mismatch: " + to_hex(record.id.value));
         }
         if (after.canonical_hash() != record.after_hash) {
             add_error(report, "commit after snapshot hash mismatch: " + to_hex(record.id.value));
+        }
+        const auto before_root = compute_world_root(before).root;
+        const auto after_root = compute_world_root(after).root;
+        if (!empty(record.before_root) && before_root != record.before_root) {
+            add_error(report, "commit before root mismatch: " + to_hex(record.id.value));
+        }
+        if (!empty(record.after_root) && after_root != record.after_root) {
+            add_error(report, "commit after root mismatch: " + to_hex(record.id.value));
         }
 
         const auto delta = repo.objects().get_canonical<Delta>(stored.delta_object);
@@ -192,8 +231,8 @@ void check_commit(
             add_error(report, "commit violation hash mismatch: " + to_hex(record.id.value));
         }
 
-        check_program_replay(repo, stored, record, report);
-        check_commit_proof(repo, stored, record, statuses, violations, report);
+        check_program_replay(repo, stored, record, before, report);
+        check_commit_proof(record, before_root, after_root, statuses, violations, report);
     } catch (const std::exception& error) {
         add_error(report, "commit verification failed for " + to_hex(record.id.value) + ": " + error.what());
     }
@@ -204,6 +243,7 @@ void check_commit(
 IntegrityReport IntegrityChecker::check_repository(const Repository& repo) const {
     IntegrityReport report;
     check_object_store(repo, report);
+    SnapshotCache cache;
 
     std::set<std::string> known_commits;
     for (const auto& ref : repo.list_branches()) {
@@ -220,9 +260,6 @@ IntegrityReport IntegrityChecker::check_repository(const Repository& repo) const
         report.branch_refs_checked += 1;
         if (!repo.objects().contains(ref.head.value)) {
             add_error(report, "branch ref points to missing commit: " + ref.name);
-        }
-        if (!repo.objects().contains(ref.snapshot)) {
-            add_error(report, "branch ref points to missing snapshot: " + ref.name);
         }
         if (repo.world(ref.name).snapshot().canonical_hash() != ref.snapshot) {
             add_error(report, "branch ref snapshot mismatch: " + ref.name);
@@ -241,7 +278,7 @@ IntegrityReport IntegrityChecker::check_repository(const Repository& repo) const
             if (record.accepted) {
                 latest_accepted = record.id;
             }
-            check_commit(repo, record, known_commits, report);
+            check_commit(repo, record, known_commits, cache, report);
         }
         if (latest_accepted.has_value() && *latest_accepted != ref.head) {
             add_error(report, "branch ref head does not match accepted history: " + ref.name);

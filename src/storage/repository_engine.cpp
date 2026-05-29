@@ -11,6 +11,8 @@
 
 #include "pv/hash/canonical.hpp"
 #include "pv/storage/object_codec.hpp"
+#include "pv/storage/pack_store.hpp"
+#include "pv/storage/snapshot_materializer.hpp"
 
 namespace pv {
 namespace {
@@ -34,18 +36,17 @@ bool index_ok(const IndexFileStatus& status) {
     return status.exists && status.checksum_ok;
 }
 
-std::size_t count_object_files(const std::filesystem::path& root) {
+std::size_t count_content_objects(const std::filesystem::path& root) {
     const auto object_root = root / "objects";
-    if (!std::filesystem::exists(object_root)) {
-        return 0;
-    }
     std::size_t count = 0;
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(object_root)) {
-        if (entry.is_regular_file() && entry.path().extension() != ".tmp") {
-            count += 1;
+    if (std::filesystem::exists(object_root)) {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(object_root)) {
+            if (entry.is_regular_file() && entry.path().extension() != ".tmp") {
+                count += 1;
+            }
         }
     }
-    return count;
+    return count + PackedContentStore{root}.packed_object_count();
 }
 
 }  // namespace
@@ -146,12 +147,7 @@ WorldSnapshot RepositoryEngine::snapshot(std::string_view branch) const {
 }
 
 WorldSnapshot RepositoryEngine::snapshot(CommitId commit) const {
-    const auto entry = commits_.find(commit);
-    if (entry.has_value() && !empty(entry->after_snapshot_object)) {
-        return objects_.get_canonical<WorldSnapshot>(entry->after_snapshot_object);
-    }
-    const auto stored = stored_commit(commit);
-    return objects_.get_canonical<WorldSnapshot>(stored.after_snapshot_object);
+    return SnapshotMaterializer{objects_, commits_, branches_}.materialize_commit(commit);
 }
 
 MaterializedWorld RepositoryEngine::materialize_branch(std::string_view branch) const {
@@ -170,12 +166,11 @@ MaterializedWorld RepositoryEngine::materialize_branch(std::string_view branch) 
         record.events = objects_.get_canonical<std::vector<TraceEvent>>(stored.trace_object);
         record.law_statuses = objects_.get_canonical<std::vector<LawStatus>>(stored.law_status_object);
         record.violations = objects_.get_canonical<std::vector<LawViolation>>(stored.violation_object);
-        if (record.accepted) {
-            out.snapshots.push_back({id, objects_.get_canonical<WorldSnapshot>(stored.after_snapshot_object)});
-        }
         out.history.push_back(std::move(record));
     }
-    const auto head_snapshot = snapshot(indexed->head);
+    auto materializer = SnapshotMaterializer{objects_, commits_, branches_};
+    out.snapshots = materializer.materialize_accepted_chain_to(indexed->head);
+    const auto head_snapshot = out.snapshots.empty() ? materializer.materialize_commit(indexed->head) : out.snapshots.back().second;
     out.world = World::from_snapshot(head_snapshot);
     return out;
 }
@@ -189,7 +184,8 @@ MaterializedWorld RepositoryEngine::materialize_commit(CommitId commit) const {
     if (const auto ref = branch_ref(entry->branch); ref.has_value()) {
         out.ref = *ref;
     }
-    out.world = World::from_snapshot(snapshot(commit));
+    auto materializer = SnapshotMaterializer{objects_, commits_, branches_};
+    out.world = World::from_snapshot(materializer.materialize_commit(commit));
     out.history.push_back(commit_record(commit));
     out.snapshots.push_back({commit, out.world.snapshot()});
     return out;
@@ -258,7 +254,7 @@ RepositoryIndexCheck RepositoryEngine::check_indexes() const {
 
 RepositoryBackendStats RepositoryEngine::stats() const {
     RepositoryBackendStats stats;
-    stats.objects = count_object_files(root_);
+    stats.objects = count_content_objects(root_);
     const auto commit_stats = commits_.stats();
     stats.commits = commit_stats.commits;
     stats.snapshots = commit_stats.snapshots;
@@ -304,6 +300,11 @@ void RepositoryEngine::rebuild_indexes() const {
                     stored.after_snapshot_object,
                     stored.delta_object,
                     stored.program_object,
+                    stored.record.before_root,
+                    stored.record.after_root,
+                    stored.record.checkpoint_snapshot_object,
+                    stored.record.checkpoint_distance,
+                    stored.record.graph_page_roots,
                     stored.record.before_epoch,
                     stored.record.after_epoch,
                     stored.record.accepted,
@@ -316,7 +317,7 @@ void RepositoryEngine::rebuild_indexes() const {
             record.events = objects_.get_canonical<std::vector<TraceEvent>>(stored.trace_object);
             record.law_statuses = objects_.get_canonical<std::vector<LawStatus>>(stored.law_status_object);
             record.violations = objects_.get_canonical<std::vector<LawViolation>>(stored.violation_object);
-            const auto after = objects_.get_canonical<WorldSnapshot>(stored.after_snapshot_object);
+            const auto after = SnapshotMaterializer{objects_, commits_, branches_}.materialize_commit(id);
             rebuilt_events.index_commit(ref.name, record, after);
         }
 
@@ -331,6 +332,7 @@ void RepositoryEngine::rebuild_indexes() const {
 
 void RepositoryEngine::compact() const {
     rebuild_indexes();
+    (void)PackedContentStore{root_}.compact_loose_objects();
     wal_.truncate();
     std::error_code ignored;
     if (std::filesystem::exists(root_ / "staging")) {

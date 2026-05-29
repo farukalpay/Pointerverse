@@ -62,6 +62,8 @@ enum class DeltaMergeError {
     InvalidPointerRelation
 };
 
+using DeltaApplyError = OverlayError;
+
 class SnapshotOverlay {
 public:
     explicit SnapshotOverlay(const WorldSnapshot& base);
@@ -77,6 +79,9 @@ merge_sequential(const WorldSnapshot& base, const Delta& first, const Delta& sec
 
 [[nodiscard]] std::expected<Delta, DeltaMergeError>
 merge_sequential(const Delta& first, const Delta& second);
+
+[[nodiscard]] std::expected<WorldSnapshot, DeltaApplyError>
+apply_delta_to_snapshot(const WorldSnapshot& base, const Delta& delta);
 
 [[nodiscard]] std::string to_string(OverlayError error);
 [[nodiscard]] std::string to_string(DeltaMergeError error);

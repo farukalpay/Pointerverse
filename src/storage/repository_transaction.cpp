@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "pv/hash/canonical.hpp"
+#include "pv/storage/chunked_snapshot_store.hpp"
 #include "pv/storage/object_codec.hpp"
 
 namespace pv {
@@ -52,6 +53,11 @@ CommitIndexEntry make_commit_entry(std::string_view branch, const CommitRecord& 
     entry.after_snapshot_object = stored.after_snapshot_object;
     entry.delta_object = stored.delta_object;
     entry.program_object = stored.program_object;
+    entry.before_root = record.before_root;
+    entry.after_root = record.after_root;
+    entry.checkpoint_snapshot_object = record.checkpoint_snapshot_object;
+    entry.checkpoint_distance = record.checkpoint_distance;
+    entry.graph_page_roots = record.graph_page_roots;
     entry.before_epoch = record.before_epoch;
     entry.after_epoch = record.after_epoch;
     entry.accepted = record.accepted;
@@ -94,10 +100,6 @@ RepositoryCommitObjects RepositoryTransactionWriter::write_commit(const Reposito
     auto stored = make_stored_commit(write.record);
 
     wal_.append(WalOp::BeginCommit, text_payload(to_hex(write.record.id.value)));
-    stored.before_snapshot_object = objects_.put_canonical(write.before_snapshot);
-    wal_.append(WalOp::PutObject, stored.before_snapshot_object.value);
-    stored.after_snapshot_object = objects_.put_canonical(write.after_snapshot);
-    wal_.append(WalOp::PutObject, stored.after_snapshot_object.value);
     stored.delta_object = objects_.put_canonical(write.delta);
     wal_.append(WalOp::PutObject, stored.delta_object.value);
     if (write.program.has_value()) {
@@ -116,12 +118,20 @@ RepositoryCommitObjects RepositoryTransactionWriter::write_commit(const Reposito
     stored.morphism_path_object = objects_.put_bytes(canonical_encode_morphism_path(write.morphism_path));
     wal_.append(WalOp::PutObject, stored.morphism_path_object.value);
 
+    if (!empty(write.record.checkpoint_snapshot_object)) {
+        const auto checkpoint = ChunkedSnapshotStore{objects_}.put_snapshot(write.after_snapshot);
+        if (checkpoint != write.record.checkpoint_snapshot_object) {
+            throw std::runtime_error("stored checkpoint hash does not match commit record");
+        }
+        wal_.append(WalOp::PutObject, checkpoint.value);
+    }
+
     const auto commit_object = objects_.put_canonical(stored);
     if (commit_object != write.record.id.value) {
         throw std::runtime_error("stored commit hash does not match commit id");
     }
     wal_.append(WalOp::PutObject, commit_object.value);
-    wal_.append(WalOp::BindSnapshot, stored.after_snapshot_object.value);
+    wal_.append(WalOp::BindSnapshot, write.record.after_hash.value);
 
     commits_.upsert(make_commit_entry(write.branch, write.record, stored));
     events_.index_commit(write.branch, write.record, write.after_snapshot);

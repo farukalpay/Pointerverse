@@ -39,6 +39,23 @@ std::vector<CommitId> read_commit_ids(IndexPayloadReader& reader) {
     return ids;
 }
 
+void write_hashes(IndexPayloadWriter& writer, const std::vector<Hash256>& hashes) {
+    writer.u64(hashes.size());
+    for (const auto hash : hashes) {
+        writer.hash(hash);
+    }
+}
+
+std::vector<Hash256> read_hashes(IndexPayloadReader& reader) {
+    const auto size = reader.u64();
+    std::vector<Hash256> hashes;
+    hashes.reserve(static_cast<std::size_t>(size));
+    for (std::uint64_t index = 0; index < size; ++index) {
+        hashes.push_back(reader.hash());
+    }
+    return hashes;
+}
+
 std::uint8_t origin_to_u8(TransactionOrigin origin) {
     switch (origin) {
     case TransactionOrigin::Manual:
@@ -99,7 +116,7 @@ void sort_branch_entries(std::vector<BranchIndexEntry>& entries) {
 }  // namespace
 
 CommitIndex::CommitIndex(std::filesystem::path root)
-    : store_(std::move(root), "commits.idx", "PVCOMMITIDX1") {}
+    : store_(std::move(root), "commits.idx", "PVCOMMITIDX2") {}
 
 bool CommitIndex::exists() const {
     return store_.exists();
@@ -124,6 +141,11 @@ std::vector<CommitIndexEntry> CommitIndex::entries() const {
         entry.after_snapshot_object = reader.hash();
         entry.delta_object = reader.hash();
         entry.program_object = reader.hash();
+        entry.before_root = reader.hash();
+        entry.after_root = reader.hash();
+        entry.checkpoint_snapshot_object = reader.hash();
+        entry.checkpoint_distance = reader.u64();
+        entry.graph_page_roots = read_hashes(reader);
         entry.before_epoch = Epoch{reader.u64()};
         entry.after_epoch = Epoch{reader.u64()};
         entry.accepted = reader.boolean();
@@ -150,7 +172,9 @@ CommitIndexStats CommitIndex::stats() const {
     for (const auto& entry : all) {
         if (entry.accepted) {
             out.accepted_commits += 1;
-            out.snapshots += 1;
+            if (entry.checkpoint_distance == 0 && !empty(entry.checkpoint_snapshot_object)) {
+                out.snapshots += 1;
+            }
         }
         if (!empty(entry.program_object)) {
             out.program_objects += 1;
@@ -184,6 +208,11 @@ void CommitIndex::write(std::vector<CommitIndexEntry> entries) const {
         writer.hash(entry.after_snapshot_object);
         writer.hash(entry.delta_object);
         writer.hash(entry.program_object);
+        writer.hash(entry.before_root);
+        writer.hash(entry.after_root);
+        writer.hash(entry.checkpoint_snapshot_object);
+        writer.u64(entry.checkpoint_distance);
+        write_hashes(writer, entry.graph_page_roots);
         writer.u64(entry.before_epoch.value);
         writer.u64(entry.after_epoch.value);
         writer.boolean(entry.accepted);

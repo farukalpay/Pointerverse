@@ -4,9 +4,12 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <set>
 #include <stdexcept>
 
+#include "pv/core/snapshot_page.hpp"
 #include "pv/kernel/program.hpp"
+#include "pv/kernel/merkle.hpp"
 
 namespace pv {
 namespace {
@@ -22,6 +25,7 @@ CommitRecord make_genesis_record(
     BranchId branch,
     const std::string& branch_name,
     const World& world,
+    const WorldSnapshot& snapshot_value,
     SnapshotId snapshot,
     Hash256 hash) {
     CommitRecord record;
@@ -39,11 +43,79 @@ CommitRecord make_genesis_record(
     record.law_hash = canonical_hash(std::vector<LawStatus>{});
     record.violation_hash = canonical_hash(std::vector<LawViolation>{});
     record.morphism_path_hash = canonical_hash_morphism_path({});
+    const auto root = compute_world_root(snapshot_value).root;
+    const auto chunked = build_chunked_snapshot_plan(snapshot_value);
+    record.before_root = root;
+    record.after_root = root;
+    record.checkpoint_snapshot_object = chunked.root_object;
+    record.checkpoint_distance = 0;
+    record.graph_page_roots = chunked.graph_page_roots();
     record.accepted = true;
     record.origin = TransactionOrigin::Internal;
     record.label = "genesis";
     record.id = make_commit_id(record);
     return record;
+}
+
+bool should_checkpoint(std::uint64_t distance, bool forced, const CheckpointPolicy& policy) {
+    if (forced) {
+        return true;
+    }
+    if (policy.every_n_commits > 0 && distance >= policy.every_n_commits) {
+        return true;
+    }
+    return policy.max_delta_chain > 0 && distance >= policy.max_delta_chain;
+}
+
+Delta with_required_symbol_interns(const WorldSnapshot& before, const Delta& delta) {
+    std::set<std::uint32_t> referenced_types;
+    std::set<std::uint32_t> referenced_relations;
+    std::set<std::uint32_t> interned_types;
+    std::set<std::uint32_t> interned_relations;
+
+    for (const auto& op : delta.ops) {
+        switch (op.kind) {
+        case OperationKind::InternType:
+            interned_types.insert(std::get<InternTypeOp>(op.body).id.value);
+            break;
+        case OperationKind::InternRelation:
+            interned_relations.insert(std::get<InternRelationOp>(op.body).id.id);
+            break;
+        case OperationKind::CreateObject:
+            referenced_types.insert(std::get<CreateObjectOp>(op.body).type.value);
+            break;
+        case OperationKind::SetObjectType:
+            referenced_types.insert(std::get<SetObjectTypeOp>(op.body).type.value);
+            break;
+        case OperationKind::CreatePointer:
+            referenced_relations.insert(std::get<CreatePointerOp>(op.body).relation.id);
+            break;
+        default:
+            break;
+        }
+    }
+
+    Delta out;
+    for (const auto id : referenced_types) {
+        if (id == 0 || interned_types.contains(id)) {
+            continue;
+        }
+        if (const auto iter = before.type_names.find(id); iter != before.type_names.end()) {
+            out.append_intern_type(iter->second, TypeId{id});
+        }
+    }
+    for (const auto id : referenced_relations) {
+        if (id == 0 || interned_relations.contains(id)) {
+            continue;
+        }
+        if (const auto iter = before.relation_names.find(id); iter != before.relation_names.end()) {
+            out.append_intern_relation(iter->second, RelationType{id});
+        }
+    }
+    for (const auto& op : delta.ops) {
+        out.append(make_operation(op.kind, op.body));
+    }
+    return out;
 }
 
 TraceEvent make_fork_event(const Branch& source, const Branch& forked, const ForkResult& result) {
@@ -62,6 +134,13 @@ TraceEvent make_fork_event(const Branch& source, const Branch& forked, const For
 
 }  // namespace
 
+WorldStore::WorldStore(CheckpointPolicy checkpoint_policy)
+    : checkpoint_policy_(checkpoint_policy) {}
+
+void WorldStore::set_checkpoint_policy(CheckpointPolicy policy) noexcept {
+    checkpoint_policy_ = policy;
+}
+
 BranchId WorldStore::create_branch(std::string name, World initial) {
     if (name.empty()) {
         throw std::invalid_argument("branch name cannot be empty");
@@ -71,9 +150,10 @@ BranchId WorldStore::create_branch(std::string name, World initial) {
     }
 
     const auto id = BranchId{next_branch_id_++};
-    const auto snapshot = snapshots_.put(initial.snapshot());
+    const auto snapshot_value = initial.snapshot();
+    const auto snapshot = snapshots_.put(snapshot_value);
     const auto hash = initial.canonical_hash();
-    auto genesis = make_genesis_record(id, name, initial, snapshot, hash);
+    auto genesis = make_genesis_record(id, name, initial, snapshot_value, snapshot, hash);
     snapshots_.bind_commit(genesis.id, snapshot);
     graph_.add_node(CommitNode{genesis.id, {}, {}, id, snapshot});
 
@@ -204,6 +284,7 @@ ForkResult WorldStore::fork_with_id(BranchId source, BranchId forked_id, std::st
     fork_state.world = source_state.world;
     fork_state.world.trace_.append(result.events);
     fork_state.history = source_state.history;
+    fork_state.checkpoint_on_next_commit = checkpoint_policy_.force_checkpoint_on_branch_fork;
     branches_.push_back(std::move(fork_state));
     next_branch_id_ = std::max(next_branch_id_, forked_id.value + 1);
     return result;
@@ -230,21 +311,27 @@ std::optional<BranchId> WorldStore::find_branch(std::string_view name) const {
     return std::nullopt;
 }
 
+Delta WorldStore::normalize_delta(BranchId branch, const Delta& delta) const {
+    return with_required_symbol_interns(state(branch).world.snapshot(), delta);
+}
+
 std::optional<CommitRecord> WorldStore::commit(BranchId branch_id, Transaction tx, const Verifier& verifier) {
     auto& branch_state = state(branch_id);
     if (!tx.id.valid()) {
         tx.id = TransactionId{next_transaction_id_++};
     }
-
     const auto before_snapshot = branch_state.branch.head_snapshot;
     const auto before_hash = branch_state.world.canonical_hash();
     const auto parent = branch_state.branch.head;
+    const auto* parent_record = parent.has_value() ? commit_record(*parent) : nullptr;
     auto prepared = prepare_transaction(branch_state.world, tx, verifier);
     const auto result = commit_prepared(branch_state.world, prepared);
 
     SnapshotId after_snapshot = before_snapshot;
+    auto after_snapshot_value = prepared.before;
     if (result.accepted) {
-        after_snapshot = snapshots_.put(branch_state.world.snapshot());
+        after_snapshot_value = branch_state.world.snapshot();
+        after_snapshot = snapshots_.put(after_snapshot_value);
     }
     const auto after_hash = branch_state.world.canonical_hash();
 
@@ -276,6 +363,22 @@ std::optional<CommitRecord> WorldStore::commit(BranchId branch_id, Transaction t
     record.write_set_hash = result.write_set_hash;
     record.proof_hash = result.proof_hash;
     record.proof = result.proof;
+    record.before_root = compute_world_root(prepared.before).root;
+    record.after_root = compute_world_root(after_snapshot_value).root;
+    auto checkpoint_distance = parent_record == nullptr ? std::uint64_t{0} : parent_record->checkpoint_distance + 1;
+    const auto checkpoint_now = result.accepted
+        && should_checkpoint(checkpoint_distance, branch_state.checkpoint_on_next_commit || !parent.has_value(), checkpoint_policy_);
+    if (!result.accepted && parent_record != nullptr) {
+        checkpoint_distance = parent_record->checkpoint_distance;
+    }
+    if (checkpoint_now) {
+        const auto chunked = build_chunked_snapshot_plan(after_snapshot_value);
+        record.checkpoint_snapshot_object = chunked.root_object;
+        record.checkpoint_distance = 0;
+        record.graph_page_roots = chunked.graph_page_roots();
+    } else {
+        record.checkpoint_distance = checkpoint_distance;
+    }
     record.accepted = result.accepted;
     record.origin = tx.origin;
     record.label = tx.label;
@@ -290,6 +393,7 @@ std::optional<CommitRecord> WorldStore::commit(BranchId branch_id, Transaction t
         branch_state.branch.head = record.id;
         branch_state.branch.head_snapshot = after_snapshot;
         branch_state.branch.epoch = branch_state.world.epoch();
+        branch_state.checkpoint_on_next_commit = false;
     }
 
     branch_state.history.push_back(record);

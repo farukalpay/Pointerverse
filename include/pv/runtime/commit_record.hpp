@@ -46,6 +46,11 @@ struct CommitRecord {
     Hash256 write_set_hash;
     Hash256 proof_hash;
     std::optional<CommitProof> proof;
+    Hash256 before_root;
+    Hash256 after_root;
+    Hash256 checkpoint_snapshot_object;
+    std::uint64_t checkpoint_distance{0};
+    std::vector<Hash256> graph_page_roots;
 
     bool accepted{false};
 

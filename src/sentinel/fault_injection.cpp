@@ -103,8 +103,23 @@ CommitRecord require_record(const Repository& repo, std::string_view branch, Com
 Hash256 object_for_kind(const Repository& repo, const CommitRecord& record, FaultObjectKind kind) {
     const auto stored = repo.objects().get_canonical<StoredCommit>(record.id.value);
     switch (kind) {
-    case FaultObjectKind::Snapshot:
-        return stored.after_snapshot_object;
+    case FaultObjectKind::Snapshot: {
+        auto current = record.id;
+        while (current.valid()) {
+            const auto candidate = repo.objects().get_canonical<StoredCommit>(current.value);
+            if (!empty(candidate.record.checkpoint_snapshot_object)) {
+                return candidate.record.checkpoint_snapshot_object;
+            }
+            if (candidate.format_version < 4 && !empty(candidate.after_snapshot_object)) {
+                return candidate.after_snapshot_object;
+            }
+            if (candidate.record.parents.empty()) {
+                break;
+            }
+            current = candidate.record.parents.front();
+        }
+        throw std::runtime_error("selected commit has no stored snapshot checkpoint");
+    }
     case FaultObjectKind::Commit:
     case FaultObjectKind::Proof:
         return record.id.value;

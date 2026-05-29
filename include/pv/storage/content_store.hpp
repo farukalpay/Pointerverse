@@ -29,6 +29,18 @@ template <>
 [[nodiscard]] StoredCommit decode_canonical<StoredCommit>(std::span<const std::byte> bytes);
 template <>
 [[nodiscard]] Program decode_canonical<Program>(std::span<const std::byte> bytes);
+template <>
+[[nodiscard]] ObjectPage decode_canonical<ObjectPage>(std::span<const std::byte> bytes);
+template <>
+[[nodiscard]] PointerPage decode_canonical<PointerPage>(std::span<const std::byte> bytes);
+template <>
+[[nodiscard]] FactPage decode_canonical<FactPage>(std::span<const std::byte> bytes);
+template <>
+[[nodiscard]] SymbolTableObject decode_canonical<SymbolTableObject>(std::span<const std::byte> bytes);
+template <>
+[[nodiscard]] SnapshotPageIndexObject decode_canonical<SnapshotPageIndexObject>(std::span<const std::byte> bytes);
+template <>
+[[nodiscard]] SnapshotRootObject decode_canonical<SnapshotRootObject>(std::span<const std::byte> bytes);
 
 class ContentStore {
 public:

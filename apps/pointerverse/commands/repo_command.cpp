@@ -44,6 +44,12 @@ public:
         compact_ = repo->add_subcommand("compact", "Compact repository backend metadata");
         compact_->add_option("path", compact_path_, "Repository path; defaults to --store");
 
+        gc_ = repo->add_subcommand("gc", "Run repository reachability garbage collection");
+        gc_->add_flag("--dry-run", gc_dry_run_, "Report unreachable loose objects without moving them");
+        gc_->add_flag("--quarantine", gc_quarantine_, "Move unreachable loose objects into quarantine");
+        gc_->add_flag("--prune", gc_prune_, "Delete quarantined objects");
+        gc_->add_option("path", gc_path_, "Repository path; defaults to --store");
+
         index_cmd_ = repo->add_subcommand("index", "Repository index commands");
         index_cmd_->require_subcommand(1);
         index_check_ = index_cmd_->add_subcommand("check", "Check persistent repository indexes");
@@ -161,6 +167,28 @@ public:
                 const auto report = IntegrityChecker{}.check_repository(repository);
                 print_integrity_report(report);
                 return report.clean() ? EXIT_SUCCESS : EXIT_FAILURE;
+            });
+        }
+        if (gc_->parsed()) {
+            return run_checked([&] {
+                auto repository = Repository::open(resolve_repo_path(gc_path_));
+                if (gc_dry_run_ && (gc_quarantine_ || gc_prune_)) {
+                    throw std::invalid_argument("repo gc --dry-run cannot be combined with --quarantine or --prune");
+                }
+                if (gc_prune_) {
+                    repository.gc_prune();
+                    std::cout << "Repository GC\n";
+                    std::cout << "-------------\n";
+                    std::cout << "pruned quarantine\n";
+                    return EXIT_SUCCESS;
+                }
+                const auto report = gc_quarantine_ ? repository.gc_quarantine() : repository.gc_mark();
+                std::cout << "Repository GC\n";
+                std::cout << "-------------\n";
+                std::cout << fmt::format("reachable objects:    {}\n", report.reachable_objects);
+                std::cout << fmt::format("unreachable objects:  {}\n", report.unreachable_objects);
+                std::cout << fmt::format("quarantined objects:  {}\n", report.quarantined_objects);
+                return EXIT_SUCCESS;
             });
         }
         if (index_check_->parsed()) {
@@ -405,6 +433,7 @@ private:
     CLI::App* stats_{nullptr};
     CLI::App* recover_{nullptr};
     CLI::App* compact_{nullptr};
+    CLI::App* gc_{nullptr};
     CLI::App* index_cmd_{nullptr};
     CLI::App* index_check_{nullptr};
     CLI::App* index_rebuild_{nullptr};
@@ -429,6 +458,10 @@ private:
     std::string stats_path_;
     std::string recover_path_;
     std::string compact_path_;
+    std::string gc_path_;
+    bool gc_dry_run_{false};
+    bool gc_quarantine_{false};
+    bool gc_prune_{false};
     std::string index_path_;
     std::string trace_path_;
     std::string branch_;

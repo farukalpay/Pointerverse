@@ -17,9 +17,11 @@ struct StoredCommit {
     Hash256 law_status_object;
     Hash256 violation_object;
     Hash256 morphism_path_object;
+    std::uint8_t format_version{4};
 };
 
 [[nodiscard]] StoredCommit make_stored_commit(const CommitRecord& record);
+[[nodiscard]] CommitId stored_commit_identity(const StoredCommit& commit);
 
 void encode(CanonicalWriter& writer, const StoredCommit& commit);
 [[nodiscard]] StoredCommit decode_stored_commit(CanonicalReader& reader);

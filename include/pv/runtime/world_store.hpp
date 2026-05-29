@@ -8,6 +8,7 @@
 
 #include "pv/core/world.hpp"
 #include "pv/runtime/branch.hpp"
+#include "pv/runtime/checkpoint_policy.hpp"
 #include "pv/runtime/commit_graph.hpp"
 #include "pv/runtime/commit_record.hpp"
 #include "pv/runtime/fork.hpp"
@@ -19,6 +20,9 @@ namespace pv {
 
 class WorldStore {
 public:
+    explicit WorldStore(CheckpointPolicy checkpoint_policy = {});
+
+    void set_checkpoint_policy(CheckpointPolicy policy) noexcept;
     [[nodiscard]] BranchId create_branch(std::string name, World initial);
     [[nodiscard]] BranchId restore_branch(
         BranchId id,
@@ -35,6 +39,7 @@ public:
     [[nodiscard]] const Branch& branch(BranchId branch) const;
     [[nodiscard]] std::optional<BranchId> find_branch(std::string_view name) const;
 
+    [[nodiscard]] Delta normalize_delta(BranchId branch, const Delta& delta) const;
     [[nodiscard]] std::optional<CommitRecord> commit(BranchId branch, Transaction tx, const Verifier& verifier);
     [[nodiscard]] std::vector<CommitRecord> history(BranchId branch) const;
     [[nodiscard]] const CommitRecord* commit_record(CommitId id) const noexcept;
@@ -49,6 +54,7 @@ private:
         Branch branch;
         World world;
         std::vector<CommitRecord> history;
+        bool checkpoint_on_next_commit{false};
     };
 
     [[nodiscard]] BranchState& state(BranchId branch);
@@ -57,6 +63,7 @@ private:
     std::vector<BranchState> branches_;
     InMemorySnapshotStore snapshots_;
     CommitGraph graph_;
+    CheckpointPolicy checkpoint_policy_;
     std::uint64_t next_branch_id_{1};
     std::uint64_t next_transaction_id_{1};
 };

@@ -218,7 +218,7 @@ std::string ExplanationEngine::explain_commit(
 
     try {
         const auto stored = repository.objects().get_canonical<StoredCommit>(id.value);
-        const auto after = repository.objects().get_canonical<WorldSnapshot>(stored.after_snapshot_object);
+        const auto after = repository.backend().snapshot(id);
         const auto delta = repository.objects().get_canonical<Delta>(stored.delta_object);
         const auto statuses = repository.objects().get_canonical<std::vector<LawStatus>>(stored.law_status_object);
         const auto violations = repository.objects().get_canonical<std::vector<LawViolation>>(stored.violation_object);

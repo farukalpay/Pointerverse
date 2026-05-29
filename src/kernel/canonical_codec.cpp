@@ -825,6 +825,194 @@ WorldSnapshot decode_world_snapshot(CanonicalReader& reader) {
     return snapshot;
 }
 
+void encode(CanonicalWriter& writer, const ObjectPage& page) {
+    writer.string("ObjectPage:v1");
+    auto objects = page.objects;
+    std::ranges::sort(objects, [](const ObjectSnapshot& left, const ObjectSnapshot& right) {
+        if (left.id.index != right.id.index) {
+            return left.id.index < right.id.index;
+        }
+        return left.id.generation < right.id.generation;
+    });
+    writer.u64(objects.size());
+    for (const auto& object : objects) {
+        encode_object_id(writer, object.id);
+        writer.string(object.name);
+        encode_type_id(writer, object.type);
+        encode_existence(writer, object.existence);
+        auto attributes = object.attributes;
+        sort_attributes(attributes);
+        writer.u64(attributes.size());
+        for (const auto& attribute : attributes) {
+            encode(writer, attribute);
+        }
+        writer.u64(object.incoming_count);
+        writer.u64(object.outgoing_count);
+    }
+}
+
+ObjectPage decode_object_page(CanonicalReader& reader) {
+    reader.expect_tag("ObjectPage:v1");
+    ObjectPage page;
+    const auto count = checked_count(reader.u64());
+    page.objects.reserve(static_cast<std::size_t>(count));
+    for (std::uint64_t index = 0; index < count; ++index) {
+        ObjectSnapshot object;
+        object.id = decode_object_id(reader);
+        object.name = reader.string();
+        object.type = decode_type_id(reader);
+        object.existence = decode_existence(reader);
+        const auto attributes = checked_count(reader.u64());
+        object.attributes.reserve(static_cast<std::size_t>(attributes));
+        for (std::uint64_t attribute_index = 0; attribute_index < attributes; ++attribute_index) {
+            object.attributes.push_back(decode_attribute(reader));
+        }
+        object.incoming_count = static_cast<std::size_t>(checked_count(reader.u64()));
+        object.outgoing_count = static_cast<std::size_t>(checked_count(reader.u64()));
+        page.objects.push_back(std::move(object));
+    }
+    return page;
+}
+
+void encode(CanonicalWriter& writer, const PointerPage& page) {
+    writer.string("PointerPage:v1");
+    auto pointers = page.pointers;
+    std::ranges::sort(pointers, [](const PointerSnapshot& left, const PointerSnapshot& right) {
+        return left.id.value < right.id.value;
+    });
+    writer.u64(pointers.size());
+    for (const auto& pointer : pointers) {
+        encode_pointer_id(writer, pointer.id);
+        encode_object_id(writer, pointer.from);
+        encode_object_id(writer, pointer.to);
+        encode_relation_type(writer, pointer.relation);
+        encode_causal_role(writer, pointer.causal_role);
+        writer.f64(pointer.weight.value);
+        encode_epoch(writer, pointer.born_at);
+        encode_optional_epoch(writer, pointer.expires_at);
+        writer.string(pointer.law_domain);
+        auto attributes = pointer.attributes;
+        sort_attributes(attributes);
+        writer.u64(attributes.size());
+        for (const auto& attribute : attributes) {
+            encode(writer, attribute);
+        }
+    }
+}
+
+PointerPage decode_pointer_page(CanonicalReader& reader) {
+    reader.expect_tag("PointerPage:v1");
+    PointerPage page;
+    const auto count = checked_count(reader.u64());
+    page.pointers.reserve(static_cast<std::size_t>(count));
+    for (std::uint64_t index = 0; index < count; ++index) {
+        PointerSnapshot pointer;
+        pointer.id = decode_pointer_id(reader);
+        pointer.from = decode_object_id(reader);
+        pointer.to = decode_object_id(reader);
+        pointer.relation = decode_relation_type(reader);
+        pointer.causal_role = decode_causal_role(reader);
+        pointer.weight = Weight{reader.f64()};
+        pointer.born_at = decode_epoch(reader);
+        pointer.expires_at = decode_optional_epoch(reader);
+        pointer.law_domain = reader.string();
+        const auto attributes = checked_count(reader.u64());
+        pointer.attributes.reserve(static_cast<std::size_t>(attributes));
+        for (std::uint64_t attribute_index = 0; attribute_index < attributes; ++attribute_index) {
+            pointer.attributes.push_back(decode_attribute(reader));
+        }
+        page.pointers.push_back(std::move(pointer));
+    }
+    return page;
+}
+
+void encode(CanonicalWriter& writer, const FactPage& page) {
+    writer.string("FactPage:v1");
+    auto facts = page.facts;
+    std::ranges::sort(facts, [](const Fact& left, const Fact& right) {
+        return left < right;
+    });
+    writer.u64(facts.size());
+    for (const auto& fact : facts) {
+        encode(writer, fact);
+    }
+}
+
+FactPage decode_fact_page(CanonicalReader& reader) {
+    reader.expect_tag("FactPage:v1");
+    FactPage page;
+    const auto count = checked_count(reader.u64());
+    page.facts.reserve(static_cast<std::size_t>(count));
+    for (std::uint64_t index = 0; index < count; ++index) {
+        page.facts.push_back(decode_fact(reader));
+    }
+    return page;
+}
+
+void encode(CanonicalWriter& writer, const SymbolTableObject& table) {
+    writer.string("SymbolTableObject:v1");
+    writer.u64(table.names.size());
+    for (const auto& [id, name] : table.names) {
+        writer.u32(id);
+        writer.string(name);
+    }
+}
+
+SymbolTableObject decode_symbol_table_object(CanonicalReader& reader) {
+    reader.expect_tag("SymbolTableObject:v1");
+    SymbolTableObject table;
+    const auto count = checked_count(reader.u64());
+    for (std::uint64_t index = 0; index < count; ++index) {
+        table.names.emplace(reader.u32(), reader.string());
+    }
+    return table;
+}
+
+void encode(CanonicalWriter& writer, const SnapshotPageIndexObject& index) {
+    writer.string("SnapshotPageIndexObject:v1");
+    writer.u64(index.pages.size());
+    for (const auto& page : index.pages) {
+        writer.hash(page);
+    }
+}
+
+SnapshotPageIndexObject decode_snapshot_page_index_object(CanonicalReader& reader) {
+    reader.expect_tag("SnapshotPageIndexObject:v1");
+    SnapshotPageIndexObject index;
+    const auto count = checked_count(reader.u64());
+    index.pages.reserve(static_cast<std::size_t>(count));
+    for (std::uint64_t item = 0; item < count; ++item) {
+        index.pages.push_back(reader.hash());
+    }
+    return index;
+}
+
+void encode(CanonicalWriter& writer, const SnapshotRootObject& root) {
+    writer.string("SnapshotRootObject:v1");
+    encode_world_id(writer, root.world);
+    writer.string(root.world_name);
+    encode_epoch(writer, root.epoch);
+    writer.hash(root.object_pages_root);
+    writer.hash(root.pointer_pages_root);
+    writer.hash(root.fact_pages_root);
+    writer.hash(root.type_table_root);
+    writer.hash(root.relation_table_root);
+}
+
+SnapshotRootObject decode_snapshot_root_object(CanonicalReader& reader) {
+    reader.expect_tag("SnapshotRootObject:v1");
+    SnapshotRootObject root;
+    root.world = decode_world_id(reader);
+    root.world_name = reader.string();
+    root.epoch = decode_epoch(reader);
+    root.object_pages_root = reader.hash();
+    root.pointer_pages_root = reader.hash();
+    root.fact_pages_root = reader.hash();
+    root.type_table_root = reader.hash();
+    root.relation_table_root = reader.hash();
+    return root;
+}
+
 void encode(CanonicalWriter& writer, const Delta& delta) {
     writer.string("Delta:v3");
     writer.u64(delta.ops.size());
@@ -1190,6 +1378,18 @@ void encode_commit_record_body(CanonicalWriter& writer, const CommitRecord& reco
     writer.string(record.label);
 }
 
+void encode_commit_record_body_v4(CanonicalWriter& writer, const CommitRecord& record) {
+    encode_commit_record_body(writer, record);
+    writer.hash(record.before_root);
+    writer.hash(record.after_root);
+    writer.hash(record.checkpoint_snapshot_object);
+    writer.u64(record.checkpoint_distance);
+    writer.u64(record.graph_page_roots.size());
+    for (const auto& root : record.graph_page_roots) {
+        writer.hash(root);
+    }
+}
+
 CommitRecord decode_commit_record_body_v1(CanonicalReader& reader) {
     CommitRecord record;
     record.parent = decode_optional_commit_id(reader);
@@ -1288,6 +1488,20 @@ CommitRecord decode_commit_record_body(CanonicalReader& reader) {
     return record;
 }
 
+CommitRecord decode_commit_record_body_v4(CanonicalReader& reader) {
+    auto record = decode_commit_record_body(reader);
+    record.before_root = reader.hash();
+    record.after_root = reader.hash();
+    record.checkpoint_snapshot_object = reader.hash();
+    record.checkpoint_distance = reader.u64();
+    const auto graph_roots = checked_count(reader.u64());
+    record.graph_page_roots.reserve(static_cast<std::size_t>(graph_roots));
+    for (std::uint64_t index = 0; index < graph_roots; ++index) {
+        record.graph_page_roots.push_back(reader.hash());
+    }
+    return record;
+}
+
 void encode_commit_proof(CanonicalWriter& writer, const CommitProof& proof) {
     writer.hash(proof.program_root);
     writer.hash(proof.before_root);
@@ -1326,6 +1540,19 @@ CommitProof decode_commit_proof(CanonicalReader& reader) {
 }
 
 void encode_commit_identity(CanonicalWriter& writer, const CommitRecord& record) {
+    writer.string("StoredCommit:v4");
+    encode_commit_record_body_v4(writer, record);
+    writer.hash(record.before_hash);
+    writer.hash(record.after_hash);
+    writer.hash(record.delta_hash);
+    writer.hash(record.program_hash);
+    writer.hash(record.trace_hash);
+    writer.hash(record.law_hash);
+    writer.hash(record.violation_hash);
+    writer.hash(record.morphism_path_hash);
+}
+
+void encode_commit_identity_v3(CanonicalWriter& writer, const CommitRecord& record) {
     writer.string("StoredCommit:v3");
     encode_commit_record_body(writer, record);
     writer.hash(record.before_hash);
@@ -1347,6 +1574,12 @@ std::vector<std::byte> canonical_encode_morphism_path(const std::vector<std::str
 std::vector<std::byte> canonical_encode_commit_identity(const CommitRecord& record) {
     CanonicalWriter writer;
     encode_commit_identity(writer, record);
+    return writer.take_bytes();
+}
+
+std::vector<std::byte> canonical_encode_commit_identity_v3(const CommitRecord& record) {
+    CanonicalWriter writer;
+    encode_commit_identity_v3(writer, record);
     return writer.take_bytes();
 }
 

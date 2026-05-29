@@ -39,6 +39,7 @@ add_library(pointerverse_kernel
     src/core/operation.cpp
     src/core/relation.cpp
     src/core/snapshot.cpp
+    src/core/snapshot_page.cpp
     src/core/type.cpp
     src/core/value.cpp
     src/core/world_index.cpp
@@ -82,6 +83,7 @@ pointerverse_configure_target(pointerverse_runtime)
 target_link_libraries(pointerverse_runtime PUBLIC pointerverse_kernel)
 
 add_library(pointerverse_storage
+    src/storage/chunked_snapshot_store.cpp
     src/storage/commit_index.cpp
     src/storage/content_store.cpp
     src/storage/event_index.cpp
@@ -90,11 +92,14 @@ add_library(pointerverse_storage
     src/storage/lock_file.cpp
     src/storage/manifest.cpp
     src/storage/object_codec.cpp
+    src/storage/pack_store.cpp
     src/storage/recovery.cpp
     src/storage/ref_store.cpp
     src/storage/repository_engine.cpp
+    src/storage/repository_gc.cpp
     src/storage/repository.cpp
     src/storage/repository_transaction.cpp
+    src/storage/snapshot_materializer.cpp
     src/storage/wal.cpp
     src/storage/world_index_store.cpp
 )
@@ -236,6 +241,14 @@ target_link_libraries(pointerverse_kernel_stress
         fmt::fmt
 )
 
+add_executable(pointerverse_backend_stress apps/pointerverse/backend_stress.cpp)
+target_link_libraries(pointerverse_backend_stress
+    PRIVATE
+        pointerverse_storage
+        pointerverse_query
+        fmt::fmt
+)
+
 if(POINTERVERSE_BUILD_TESTS)
     enable_testing()
     find_package(Catch2 3 CONFIG REQUIRED)
@@ -276,13 +289,17 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/sentinel/patrol_tests.cpp
         tests/sentinel/region_table_tests.cpp
         tests/storage/codec_tests.cpp
+        tests/storage/chunked_snapshot_store_tests.cpp
         tests/storage/content_store_tests.cpp
         tests/storage/integrity_tests.cpp
         tests/storage/lazy_load_tests.cpp
+        tests/storage/pack_store_tests.cpp
+        tests/storage/repository_gc_tests.cpp
         tests/storage/repository_index_tests.cpp
         tests/storage/repository_lock_tests.cpp
         tests/storage/repository_recovery_tests.cpp
         tests/storage/repository_tests.cpp
+        tests/storage/snapshot_materializer_tests.cpp
         tests/storage/wal_tests.cpp
         tests/trace/replay_tests.cpp
     )

@@ -235,13 +235,15 @@ void flush_group(
 
 }  // namespace
 
-Repository::Repository(std::filesystem::path root)
+Repository::Repository(std::filesystem::path root, RepositoryOptions options)
     : root_(std::move(root)),
       manifest_(root_),
       objects_(root_),
       refs_(root_),
       wal_(root_),
-      engine_(root_, objects_, refs_, wal_) {}
+      engine_(root_, objects_, refs_, wal_),
+      options_(options),
+      store_(options_.checkpoint_policy) {}
 
 Repository::Repository(Repository&& other) noexcept
     : root_(std::move(other.root_)),
@@ -250,9 +252,10 @@ Repository::Repository(Repository&& other) noexcept
       refs_(root_),
       wal_(root_),
       engine_(root_, objects_, refs_, wal_),
+      options_(other.options_),
       store_(std::move(other.store_)) {}
 
-Repository Repository::init(std::filesystem::path root) {
+Repository Repository::init(std::filesystem::path root, RepositoryOptions options) {
     std::filesystem::create_directories(root);
     std::filesystem::create_directories(root / "objects");
     std::filesystem::create_directories(root / "refs" / "branches");
@@ -260,7 +263,7 @@ Repository Repository::init(std::filesystem::path root) {
     std::filesystem::create_directories(root / "wal");
     std::filesystem::create_directories(root / "locks");
 
-    Repository repo{std::move(root)};
+    Repository repo{std::move(root), options};
     repo.manifest_.write(RepositoryManifest{});
     repo.refs_.set_current_branch("main");
     repo.wal_.truncate();
@@ -268,8 +271,8 @@ Repository Repository::init(std::filesystem::path root) {
     return repo;
 }
 
-Repository Repository::open(std::filesystem::path root) {
-    Repository repo{std::move(root)};
+Repository Repository::open(std::filesystem::path root, RepositoryOptions options) {
+    Repository repo{std::move(root), options};
     if (!repo.manifest_.exists()) {
         throw std::runtime_error("not a Pointerverse repository");
     }
@@ -321,6 +324,7 @@ ForkResult Repository::fork(std::string_view source, std::string new_name) {
 std::optional<CommitRecord> Repository::commit(std::string_view branch, Transaction tx, const Verifier& verifier) {
     RepositoryWriteLock lock{root_};
     const auto branch_id = require_branch(branch);
+    tx.delta = store_.normalize_delta(branch_id, tx.delta);
     const auto record = store_.commit(branch_id, tx, verifier);
     if (!record.has_value()) {
         return std::nullopt;
@@ -500,6 +504,20 @@ void Repository::rebuild_indexes() {
 void Repository::compact() {
     RepositoryWriteLock lock{root_};
     engine_.compact();
+}
+
+ReachabilityReport Repository::gc_mark() const {
+    return RepositoryGc{root_, const_cast<RepositoryEngine&>(engine_), const_cast<ContentStore&>(objects_)}.mark();
+}
+
+ReachabilityReport Repository::gc_quarantine() {
+    RepositoryWriteLock lock{root_};
+    return RepositoryGc{root_, engine_, objects_}.quarantine_unreachable();
+}
+
+void Repository::gc_prune() {
+    RepositoryWriteLock lock{root_};
+    RepositoryGc{root_, engine_, objects_}.prune_quarantine();
 }
 
 std::size_t Repository::materialized_branch_count() const noexcept {

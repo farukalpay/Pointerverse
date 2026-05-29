@@ -15,7 +15,9 @@
 #include "pv/storage/content_store.hpp"
 #include "pv/storage/recovery.hpp"
 #include "pv/storage/repository_engine.hpp"
+#include "pv/storage/repository_gc.hpp"
 #include "pv/storage/manifest.hpp"
+#include "pv/storage/repository_options.hpp"
 #include "pv/storage/ref_store.hpp"
 #include "pv/storage/wal.hpp"
 
@@ -34,8 +36,8 @@ public:
     Repository(Repository&& other) noexcept;
     Repository& operator=(Repository&& other) = delete;
 
-    static Repository init(std::filesystem::path root);
-    static Repository open(std::filesystem::path root);
+    static Repository init(std::filesystem::path root, RepositoryOptions options = {});
+    static Repository open(std::filesystem::path root, RepositoryOptions options = {});
 
     [[nodiscard]] const std::filesystem::path& root() const noexcept;
     [[nodiscard]] RepositoryStatus status() const;
@@ -71,10 +73,13 @@ public:
     [[nodiscard]] RepositoryRecoveryReport recover();
     void rebuild_indexes();
     void compact();
+    [[nodiscard]] ReachabilityReport gc_mark() const;
+    [[nodiscard]] ReachabilityReport gc_quarantine();
+    void gc_prune();
     [[nodiscard]] std::size_t materialized_branch_count() const noexcept;
 
 private:
-    explicit Repository(std::filesystem::path root);
+    explicit Repository(std::filesystem::path root, RepositoryOptions options = {});
 
     void ensure_materialized(std::string_view branch) const;
     void persist_record(
@@ -95,6 +100,7 @@ private:
     RefStore refs_;
     Wal wal_;
     RepositoryEngine engine_;
+    RepositoryOptions options_;
     mutable WorldStore store_;
 };
 

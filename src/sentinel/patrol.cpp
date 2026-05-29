@@ -167,6 +167,9 @@ SentinelReport StorePatrolWorker::run(const std::filesystem::path& root) const {
     return report;
 }
 
+WorldSnapshot before_snapshot_for(const Repository& repo, const CommitRecord& record);
+WorldSnapshot after_snapshot_for(const Repository& repo, const CommitRecord& record);
+
 CommitProofCheck check_commit_proof(const Repository& repo, const CommitRecord& record) {
     CommitProofCheck check;
     check.commit = record.id;
@@ -177,8 +180,8 @@ CommitProofCheck check_commit_proof(const Repository& repo, const CommitRecord& 
 
     try {
         const auto stored = repo.objects().get_canonical<StoredCommit>(record.id.value);
-        const auto before = repo.objects().get_canonical<WorldSnapshot>(stored.before_snapshot_object);
-        const auto after = repo.objects().get_canonical<WorldSnapshot>(stored.after_snapshot_object);
+        const auto before = before_snapshot_for(repo, record);
+        const auto after = after_snapshot_for(repo, record);
         const auto statuses = repo.objects().get_canonical<std::vector<LawStatus>>(stored.law_status_object);
         const auto violations = repo.objects().get_canonical<std::vector<LawViolation>>(stored.violation_object);
 
@@ -227,6 +230,17 @@ CommitProofCheck check_commit_proof(const Repository& repo, const CommitRecord& 
     return check;
 }
 
+WorldSnapshot before_snapshot_for(const Repository& repo, const CommitRecord& record) {
+    if (!record.parents.empty()) {
+        return repo.backend().snapshot(record.parents.front());
+    }
+    return repo.backend().snapshot(record.id);
+}
+
+WorldSnapshot after_snapshot_for(const Repository& repo, const CommitRecord& record) {
+    return repo.backend().snapshot(record.id);
+}
+
 ProgramReplayCheck check_program_replay(const Repository& repo, const CommitRecord& record) {
     ProgramReplayCheck check;
     check.commit = record.id;
@@ -239,7 +253,7 @@ ProgramReplayCheck check_program_replay(const Repository& repo, const CommitReco
 
     try {
         const auto stored = repo.objects().get_canonical<StoredCommit>(record.id.value);
-        const auto before = repo.objects().get_canonical<WorldSnapshot>(stored.before_snapshot_object);
+        const auto before = before_snapshot_for(repo, record);
         if (stored.program_object != record.program_hash) {
             check.matched = false;
             check.diagnostics.push_back("commit program object mismatch");
@@ -340,10 +354,6 @@ SentinelReport patrol_repository(const Repository& repo) {
         if (!repo.objects().contains(ref.head.value)) {
             add_sentinel_error(report, "ProofPatrolWorker", "branch ref points to missing commit: " + ref.name);
         }
-        if (!repo.objects().contains(ref.snapshot)) {
-            add_sentinel_error(report, "ProofPatrolWorker", "branch ref points to missing snapshot: " + ref.name);
-        }
-
         std::optional<CommitId> latest_accepted;
         for (const auto& record : repo.history(ref.name)) {
             known_commits.insert(to_hex(record.id.value));
@@ -369,7 +379,8 @@ SentinelReport patrol_repository(const Repository& repo) {
                     sha256(repo.objects().get_bytes(record.id.value)),
                     true
                 });
-                if (make_commit_id(stored.record) != record.id) {
+                const auto identity = stored_commit_identity(stored);
+                if (identity.valid() && identity != record.id) {
                     add_sentinel_error(report, "ProofPatrolWorker", "commit id does not match canonical record: " + to_hex(record.id.value));
                 }
                 for (const auto& parent : record.parents) {
@@ -378,8 +389,8 @@ SentinelReport patrol_repository(const Repository& repo) {
                     }
                 }
 
-                const auto before = repo.objects().get_canonical<WorldSnapshot>(stored.before_snapshot_object);
-                const auto after = repo.objects().get_canonical<WorldSnapshot>(stored.after_snapshot_object);
+                const auto before = before_snapshot_for(repo, record);
+                const auto after = after_snapshot_for(repo, record);
                 regions.add(IntegrityRegion{
                     RegionKind::SnapshotObject,
                     to_hex(record.id.value) + ":before",

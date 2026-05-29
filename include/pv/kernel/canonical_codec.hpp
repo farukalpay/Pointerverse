@@ -10,6 +10,7 @@
 
 #include "pv/core/delta.hpp"
 #include "pv/core/fact.hpp"
+#include "pv/core/snapshot_page.hpp"
 #include "pv/core/snapshot.hpp"
 #include "pv/hash/canonical.hpp"
 #include "pv/kernel/program.hpp"
@@ -77,9 +78,16 @@ void encode(CanonicalWriter& writer, const LawStatus& status);
 void encode(CanonicalWriter& writer, const std::vector<LawStatus>& statuses);
 void encode(CanonicalWriter& writer, const LawViolation& violation);
 void encode(CanonicalWriter& writer, const std::vector<LawViolation>& violations);
+void encode(CanonicalWriter& writer, const ObjectPage& page);
+void encode(CanonicalWriter& writer, const PointerPage& page);
+void encode(CanonicalWriter& writer, const FactPage& page);
+void encode(CanonicalWriter& writer, const SymbolTableObject& table);
+void encode(CanonicalWriter& writer, const SnapshotPageIndexObject& index);
+void encode(CanonicalWriter& writer, const SnapshotRootObject& root);
 void encode_morphism_path(CanonicalWriter& writer, const std::vector<std::string>& path);
 void encode_commit_identity(CanonicalWriter& writer, const CommitRecord& record);
 void encode_commit_record_body(CanonicalWriter& writer, const CommitRecord& record);
+void encode_commit_record_body_v4(CanonicalWriter& writer, const CommitRecord& record);
 void encode_commit_proof(CanonicalWriter& writer, const CommitProof& proof);
 
 [[nodiscard]] WorldSnapshot decode_world_snapshot(CanonicalReader& reader);
@@ -96,8 +104,15 @@ void encode_commit_proof(CanonicalWriter& writer, const CommitProof& proof);
 [[nodiscard]] std::vector<LawStatus> decode_law_statuses(CanonicalReader& reader);
 [[nodiscard]] LawViolation decode_law_violation(CanonicalReader& reader);
 [[nodiscard]] std::vector<LawViolation> decode_law_violations(CanonicalReader& reader);
+[[nodiscard]] ObjectPage decode_object_page(CanonicalReader& reader);
+[[nodiscard]] PointerPage decode_pointer_page(CanonicalReader& reader);
+[[nodiscard]] FactPage decode_fact_page(CanonicalReader& reader);
+[[nodiscard]] SymbolTableObject decode_symbol_table_object(CanonicalReader& reader);
+[[nodiscard]] SnapshotPageIndexObject decode_snapshot_page_index_object(CanonicalReader& reader);
+[[nodiscard]] SnapshotRootObject decode_snapshot_root_object(CanonicalReader& reader);
 [[nodiscard]] std::vector<std::string> decode_morphism_path(CanonicalReader& reader);
 [[nodiscard]] CommitRecord decode_commit_record_body(CanonicalReader& reader);
+[[nodiscard]] CommitRecord decode_commit_record_body_v4(CanonicalReader& reader);
 [[nodiscard]] CommitRecord decode_commit_record_body_v1(CanonicalReader& reader);
 [[nodiscard]] CommitRecord decode_commit_record_body_v2(CanonicalReader& reader);
 [[nodiscard]] CommitProof decode_commit_proof(CanonicalReader& reader);
@@ -112,5 +127,6 @@ template <class T>
 
 [[nodiscard]] std::vector<std::byte> canonical_encode_morphism_path(const std::vector<std::string>& path);
 [[nodiscard]] std::vector<std::byte> canonical_encode_commit_identity(const CommitRecord& record);
+[[nodiscard]] std::vector<std::byte> canonical_encode_commit_identity_v3(const CommitRecord& record);
 
 }  // namespace pv

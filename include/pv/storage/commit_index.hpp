@@ -23,6 +23,11 @@ struct CommitIndexEntry {
     Hash256 after_snapshot_object;
     Hash256 delta_object;
     Hash256 program_object;
+    Hash256 before_root;
+    Hash256 after_root;
+    Hash256 checkpoint_snapshot_object;
+    std::uint64_t checkpoint_distance{0};
+    std::vector<Hash256> graph_page_roots;
     Epoch before_epoch;
     Epoch after_epoch;
     bool accepted{false};

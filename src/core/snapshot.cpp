@@ -560,6 +560,11 @@ merge_sequential(const Delta& first, const Delta& second) {
     return merge_sequential(base, first, second);
 }
 
+std::expected<WorldSnapshot, DeltaApplyError>
+apply_delta_to_snapshot(const WorldSnapshot& base, const Delta& delta) {
+    return SnapshotOverlay{base}.apply(delta);
+}
+
 bool WorldSnapshot::contains(ObjectId id) const noexcept {
     return object(id) != nullptr;
 }

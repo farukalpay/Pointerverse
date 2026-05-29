@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "pv/hash/hasher.hpp"
+#include "pv/storage/pack_store.hpp"
 
 namespace pv {
 namespace {
@@ -78,6 +79,9 @@ Hash256 ContentStore::put_bytes(std::span<const std::byte> bytes) {
 
 std::vector<std::byte> ContentStore::get_bytes(Hash256 id) const {
     const auto path = object_path(id);
+    if (!std::filesystem::exists(path)) {
+        return PackedContentStore{root_}.get_bytes(id);
+    }
     auto bytes = read_binary_file(path);
     const auto actual = sha256(bytes);
     if (actual != id) {
@@ -87,7 +91,7 @@ std::vector<std::byte> ContentStore::get_bytes(Hash256 id) const {
 }
 
 bool ContentStore::contains(Hash256 id) const {
-    return std::filesystem::exists(object_path(id));
+    return std::filesystem::exists(object_path(id)) || PackedContentStore{root_}.contains(id);
 }
 
 template <>
@@ -123,6 +127,36 @@ StoredCommit decode_canonical<StoredCommit>(std::span<const std::byte> bytes) {
 template <>
 Program decode_canonical<Program>(std::span<const std::byte> bytes) {
     return decode_with<Program>(bytes, decode_program);
+}
+
+template <>
+ObjectPage decode_canonical<ObjectPage>(std::span<const std::byte> bytes) {
+    return decode_with<ObjectPage>(bytes, decode_object_page);
+}
+
+template <>
+PointerPage decode_canonical<PointerPage>(std::span<const std::byte> bytes) {
+    return decode_with<PointerPage>(bytes, decode_pointer_page);
+}
+
+template <>
+FactPage decode_canonical<FactPage>(std::span<const std::byte> bytes) {
+    return decode_with<FactPage>(bytes, decode_fact_page);
+}
+
+template <>
+SymbolTableObject decode_canonical<SymbolTableObject>(std::span<const std::byte> bytes) {
+    return decode_with<SymbolTableObject>(bytes, decode_symbol_table_object);
+}
+
+template <>
+SnapshotPageIndexObject decode_canonical<SnapshotPageIndexObject>(std::span<const std::byte> bytes) {
+    return decode_with<SnapshotPageIndexObject>(bytes, decode_snapshot_page_index_object);
+}
+
+template <>
+SnapshotRootObject decode_canonical<SnapshotRootObject>(std::span<const std::byte> bytes) {
+    return decode_with<SnapshotRootObject>(bytes, decode_snapshot_root_object);
 }
 
 }  // namespace pv

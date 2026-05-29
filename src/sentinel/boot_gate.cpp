@@ -277,9 +277,6 @@ BootGateResult run_boot_gate(const std::filesystem::path& root) {
             if (!objects.contains(ref.head.value)) {
                 return fail(BootStage::BranchRefs, "branch ref points to missing commit: " + ref.name);
             }
-            if (!objects.contains(ref.snapshot)) {
-                return fail(BootStage::BranchRefs, "branch ref points to missing snapshot: " + ref.name);
-            }
         }
     } catch (const std::exception& error) {
         return fail(BootStage::BranchRefs, error.what());
