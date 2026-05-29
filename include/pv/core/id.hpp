@@ -32,6 +32,12 @@ struct ObjectId {
     [[nodiscard]] bool valid_token() const noexcept;
 
     friend bool operator==(ObjectId, ObjectId) = default;
+    friend bool operator<(ObjectId left, ObjectId right) noexcept {
+        if (left.index != right.index) {
+            return left.index < right.index;
+        }
+        return left.generation < right.generation;
+    }
 };
 
 struct QualifiedObject {

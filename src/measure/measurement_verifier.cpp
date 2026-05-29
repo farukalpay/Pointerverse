@@ -59,8 +59,8 @@ MeasurementVerificationReport MeasurementVerifier::verify_branch(
                 add_error(report, "measurement index row does not match record: " + short_hash(entry.measurement_object));
                 continue;
             }
-            if (record.risk != entry.risk || record.projection != entry.projection) {
-                add_error(report, "measurement index risk/projection differs from record: " + short_hash(entry.measurement_object));
+            if (record.risk != entry.risk) {
+                add_error(report, "measurement index risk differs from record: " + short_hash(entry.measurement_object));
             }
             if (record.evidence_root != measurement_evidence_root(record.evidence_objects)) {
                 add_error(report, "measurement evidence root mismatch: " + short_hash(entry.measurement_object));
@@ -76,7 +76,7 @@ MeasurementVerificationReport MeasurementVerifier::verify_branch(
             if (record.commit_root != recomputed.commit_root) {
                 add_error(report, "measurement commit root mismatch: " + short_hash(entry.measurement_object));
             }
-            if (record.risk != recomputed.value || record.projection != recomputed.projection) {
+            if (record.risk != recomputed.value) {
                 add_error(report, "measurement risk differs from recomputation: " + short_hash(entry.measurement_object));
             }
             if (record.evidence_root != recomputed.evidence_root) {

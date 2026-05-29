@@ -28,6 +28,8 @@ struct AuditReport {
     std::string branch;
     std::size_t commits_checked{0};
     Hash256 measurement_spec_hash;
+    Hash256 projection_policy_hash;
+    Hash256 projection_hash;
     RiskVector risk;
     std::uint64_t projected_score{0};
     std::vector<MeasuredRisk> measured_risks;

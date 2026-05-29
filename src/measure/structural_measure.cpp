@@ -2,7 +2,7 @@
 #include "pv/measure/structural_measure.hpp"
 
 #include <algorithm>
-#include <cmath>
+#include <array>
 #include <limits>
 #include <map>
 #include <optional>
@@ -13,18 +13,13 @@
 #include <vector>
 
 #include "pv/core/delta.hpp"
-#include "pv/core/world_index.hpp"
+#include "pv/measure/graph_functional.hpp"
+#include "pv/measure/graph_view.hpp"
 #include "pv/storage/object_codec.hpp"
 #include "pv/storage/repository.hpp"
 
 namespace pv {
 namespace {
-
-using ObjectKey = std::pair<ObjectIndex, Generation>;
-
-ObjectKey key(ObjectId id) noexcept {
-    return {id.index, id.generation};
-}
 
 std::uint64_t saturating_add(std::uint64_t left, std::uint64_t right) noexcept {
     constexpr auto max = std::numeric_limits<std::uint64_t>::max();
@@ -34,27 +29,20 @@ std::uint64_t saturating_add(std::uint64_t left, std::uint64_t right) noexcept {
     return left + right;
 }
 
-std::uint64_t weight_scaled(Weight weight) noexcept {
-    if (!std::isfinite(weight.value) || weight.value <= 0.0) {
+std::uint64_t saturating_mul(std::uint64_t left, std::uint64_t right) noexcept {
+    if (left == 0 || right == 0) {
         return 0;
     }
-    constexpr double scale = 1000000.0;
-    if (weight.value >= static_cast<double>(std::numeric_limits<std::uint64_t>::max()) / scale) {
-        return std::numeric_limits<std::uint64_t>::max();
+    constexpr auto max = std::numeric_limits<std::uint64_t>::max();
+    if (left > max / right) {
+        return max;
     }
-    return static_cast<std::uint64_t>(std::llround(weight.value * scale));
-}
-
-bool active_at(const PointerSnapshot& pointer, Epoch epoch) noexcept {
-    return pointer.born_at <= epoch && (!pointer.expires_at.has_value() || epoch < *pointer.expires_at);
+    return left * right;
 }
 
 void sort_objects(std::vector<ObjectId>& objects) {
     std::ranges::sort(objects, [](ObjectId left, ObjectId right) {
-        if (left.index != right.index) {
-            return left.index < right.index;
-        }
-        return left.generation < right.generation;
+        return left < right;
     });
     objects.erase(std::ranges::unique(objects).begin(), objects.end());
 }
@@ -71,68 +59,6 @@ std::optional<ObjectId> object_named(const WorldSnapshot& snapshot, std::string_
         }
     }
     return std::nullopt;
-}
-
-WorldGraphIndexEntry graph_entry_from_snapshot(CommitId commit, Hash256 snapshot_root, const WorldSnapshot& snapshot) {
-    WorldIndex runtime_index;
-    runtime_index.rebuild(snapshot);
-
-    WorldGraphIndexEntry entry;
-    entry.commit = commit;
-    entry.snapshot = snapshot_root;
-    entry.names.reserve(snapshot.objects.size());
-    entry.adjacency.reserve(snapshot.objects.size());
-    for (const auto& object : snapshot.objects) {
-        entry.names.push_back(WorldObjectNameIndexEntry{object.name, object.id});
-        entry.adjacency.push_back(WorldGraphAdjacencyEntry{
-            object.id,
-            {runtime_index.outgoing(object.id).begin(), runtime_index.outgoing(object.id).end()},
-            {runtime_index.incoming(object.id).begin(), runtime_index.incoming(object.id).end()}
-        });
-    }
-    for (const auto& [id, name] : snapshot.type_names) {
-        const auto span = runtime_index.objects_by_type(TypeId{id});
-        if (!span.empty()) {
-            entry.types.push_back(WorldTypeIndexEntry{name, {span.begin(), span.end()}});
-        }
-    }
-    for (const auto& [id, name] : snapshot.relation_names) {
-        const auto span = runtime_index.relation(RelationType{id});
-        if (!span.empty()) {
-            entry.relations.push_back(WorldRelationIndexEntry{name, {span.begin(), span.end()}});
-        }
-    }
-    for (const auto& pointer : snapshot.pointers) {
-        if (!active_at(pointer, snapshot.epoch)) {
-            continue;
-        }
-        entry.pointers.push_back(WorldGraphPointerEntry{
-            pointer.id,
-            pointer.from,
-            pointer.to,
-            snapshot.relation_name(pointer.relation),
-            weight_scaled(pointer.weight)
-        });
-    }
-    return entry;
-}
-
-const WorldGraphAdjacencyEntry* adjacency_for(const WorldGraphIndexEntry& graph, ObjectId object) {
-    for (const auto& adjacency : graph.adjacency) {
-        if (adjacency.object == object) {
-            return &adjacency;
-        }
-    }
-    return nullptr;
-}
-
-const WorldGraphPointerEntry* pointer_for(const WorldGraphIndexEntry& graph, PointerId pointer) {
-    for (const auto& candidate : graph.pointers) {
-        if (candidate.pointer == pointer) {
-            return &candidate;
-        }
-    }
-    return nullptr;
 }
 
 void add_event_touches(const CommitRecord& record, const WorldSnapshot& after, std::vector<ObjectId>& objects) {
@@ -279,6 +205,33 @@ std::vector<PointerId> touched_pointers_from_delta(const Delta& delta) {
     return touched;
 }
 
+std::uint64_t compat_structural_projection(
+    std::size_t touched_objects,
+    const std::vector<std::pair<std::string_view, FunctionalResult>>& results) {
+    std::uint64_t value = touched_objects;
+    for (const auto& [name, result] : results) {
+        if (name == "forward_cone_mass") {
+            value = saturating_add(value, result.value);
+        } else if (name == "reverse_dependency_mass") {
+            value = saturating_add(value, result.value / 2U);
+        } else if (name == "propagated_mass") {
+            value = saturating_add(value, result.value);
+        } else if (name == "cut_vertex_impact") {
+            value = saturating_add(value, saturating_mul(result.value, 2U));
+        } else if (name == "boundary_expansion") {
+            value = saturating_add(value, result.value);
+        } else if (name == "path_multiplicity") {
+            value = saturating_add(value, result.value / 4U);
+        }
+    }
+    return value;
+}
+
+void append_witness(RiskEvidence& evidence, const FunctionalResult& result) {
+    evidence.objects.insert(evidence.objects.end(), result.witness_objects.begin(), result.witness_objects.end());
+    evidence.pointers.insert(evidence.pointers.end(), result.witness_pointers.begin(), result.witness_pointers.end());
+}
+
 }  // namespace
 
 MeasuredComponent StructuralRiskMeasure::measure(
@@ -290,13 +243,7 @@ MeasuredComponent StructuralRiskMeasure::measure(
     const auto after = repository.backend().snapshot(commit);
     const auto before = before_snapshot_for(repository, record, after);
     const auto delta = repository.objects().get_canonical<Delta>(stored.delta_object);
-
-    std::string index_source = "persistent_commit_index";
-    auto graph = repository.backend().world_index().find_commit(commit);
-    if (!graph.has_value() || graph->snapshot != record.after_root) {
-        index_source = "materialized_commit_snapshot";
-        graph = graph_entry_from_snapshot(commit, record.after_root, after);
-    }
+    const auto graph = weighted_graph_view_for_commit(repository, commit);
 
     auto touched_objects = touched_objects_from_delta(delta, before, after);
     add_event_touches(record, after, touched_objects);
@@ -311,72 +258,49 @@ MeasuredComponent StructuralRiskMeasure::measure(
     }
     sort_pointers(touched_pointers);
 
-    std::set<ObjectKey> visited_objects;
-    std::set<std::uint64_t> visited_pointers;
-    std::vector<ObjectId> frontier = touched_objects;
-    std::uint64_t weighted_mass = 0;
-    std::uint64_t relation_fanout = 0;
-    std::uint64_t articulation = 0;
+    ForwardConeMass forward;
+    ReverseDependencyMass reverse;
+    PropagatedMass propagated;
+    CutVertexImpact cut;
+    BoundaryExpansion boundary;
+    PathMultiplicity paths;
+    const std::array<const GraphFunctional*, 6> functionals{
+        &forward,
+        &reverse,
+        &propagated,
+        &cut,
+        &boundary,
+        &paths
+    };
 
-    for (const auto object : touched_objects) {
-        if (const auto* adjacency = adjacency_for(*graph, object); adjacency != nullptr) {
-            relation_fanout = saturating_add(relation_fanout, adjacency->outgoing.size());
-            if (!adjacency->incoming.empty() && !adjacency->outgoing.empty()) {
-                articulation = saturating_add(articulation, 1);
-            }
-        }
-        visited_objects.insert(key(object));
+    std::vector<std::pair<std::string_view, FunctionalResult>> results;
+    results.reserve(functionals.size());
+    for (const auto* functional : functionals) {
+        results.emplace_back(functional->name(), functional->evaluate(graph, touched_objects));
     }
-
-    while (!frontier.empty()) {
-        std::vector<ObjectId> next;
-        for (const auto object : frontier) {
-            const auto* adjacency = adjacency_for(*graph, object);
-            if (adjacency == nullptr) {
-                continue;
-            }
-            for (const auto pointer_id : adjacency->outgoing) {
-                const auto* pointer = pointer_for(*graph, pointer_id);
-                if (pointer == nullptr) {
-                    continue;
-                }
-                if (visited_pointers.insert(pointer_id.value).second) {
-                    weighted_mass = saturating_add(weighted_mass, pointer->weight_scaled);
-                }
-                if (visited_objects.insert(key(pointer->to)).second) {
-                    next.push_back(pointer->to);
-                }
-            }
-        }
-        sort_objects(next);
-        frontier = std::move(next);
-    }
-
-    const auto weighted_units = weighted_mass / 1000000ULL;
-    std::uint64_t value = touched_objects.size();
-    value = saturating_add(value, visited_objects.size());
-    value = saturating_add(value, visited_pointers.size());
-    value = saturating_add(value, weighted_units);
-    value = saturating_add(value, articulation * 2U);
-    value = saturating_add(value, relation_fanout);
 
     MeasuredComponent component;
     component.name = "structural";
-    component.value = value;
+    component.value = compat_structural_projection(touched_objects.size(), results);
     component.evidence.component = component.name;
     component.evidence.input_root = record.before_root;
     component.evidence.output_root = record.after_root;
     component.evidence.objects = touched_objects;
     component.evidence.pointers = touched_pointers;
     component.evidence.commits.push_back(commit);
+    for (const auto& [_, result] : results) {
+        append_witness(component.evidence, result);
+    }
+    sort_objects(component.evidence.objects);
+    sort_pointers(component.evidence.pointers);
+
     std::ostringstream explanation;
-    explanation << "index source: " << index_source
-                << "; changed objects: " << touched_objects.size()
-                << "; forward cone objects: " << visited_objects.size()
-                << "; forward cone pointers: " << visited_pointers.size()
-                << "; weighted causal cone mass: " << weighted_units
-                << "; touched articulation objects: " << articulation
-                << "; relation fanout: " << relation_fanout;
+    explanation << "graph functional structural compat projection"
+                << "; changed objects: " << touched_objects.size();
+    for (const auto& [name, result] : results) {
+        explanation << "; " << name << "=" << result.value
+                    << " [" << result.explanation << "]";
+    }
     component.evidence.explanation = explanation.str();
     return component;
 }

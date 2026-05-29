@@ -112,6 +112,7 @@ MeasuredRisk MeasuredRiskFunctional::measure_commit(
         risk.projection,
         risk.evidence);
     risk.measurement_object = risk.measurement_hash;
+    risk.projection_result = make_projection_result(risk.measurement_hash, risk.value, spec.projection);
     return risk;
 }
 

@@ -75,6 +75,8 @@ nlohmann::json measured_risk_json(const MeasuredRisk& measured) {
     json["spec_hash"] = to_hex(measured.spec_hash);
     json["risk"] = risk_vector_json(measured.value);
     json["projection"] = measured.projection;
+    json["projection_policy_hash"] = to_hex(measured.projection_result.projection_policy_hash);
+    json["projection_hash"] = to_hex(measured.projection_result.projection_hash);
     json["evidence_root"] = to_hex(measured.evidence_root);
     json["measurement_object"] = to_hex(measured.measurement_object);
     json["measurement_hash"] = to_hex(measured.measurement_hash);
@@ -97,7 +99,10 @@ AuditReport AuditReportGenerator::generate(
     auto measured = MeasurementStore{repository}.measure_or_load_branch(branch, spec);
     report.measured_risks = std::move(measured.measured);
     report.risk = joined_risk(report.measured_risks);
-    report.projected_score = project(report.risk, spec.projection);
+    const auto projection = make_projection_result(Hash256{}, report.risk, spec.projection);
+    report.projection_policy_hash = projection.projection_policy_hash;
+    report.projection_hash = projection.projection_hash;
+    report.projected_score = projection.projected_score;
     report.risk_score = static_cast<int>(std::min<std::uint64_t>(report.projected_score, 100));
 
     for (const auto& record : repository.history(branch)) {
@@ -134,7 +139,7 @@ std::string render_audit_report_text(const AuditReport& report) {
     output << fmt::format("commits checked: {}\n", report.commits_checked);
     output << fmt::format("violations: {}\n", report.violations.size());
     output << fmt::format(
-        "risk: structural={} law={} repair={} surprise={}\n",
+        "risk vector: structural={} law={} repair={} surprise={}\n",
         report.risk.structural,
         report.risk.law_distance,
         report.risk.repair_distance,
@@ -205,10 +210,12 @@ std::string render_audit_report_json(const AuditReport& report) {
     nlohmann::json json;
     json["branch"] = report.branch;
     json["commits_checked"] = report.commits_checked;
-    json["risk_score"] = report.risk_score;
-    json["projected_score"] = report.projected_score;
     json["measurement_spec_hash"] = to_hex(report.measurement_spec_hash);
+    json["projection_policy_hash"] = to_hex(report.projection_policy_hash);
     json["risk"] = risk_vector_json(report.risk);
+    json["projected_score"] = report.projected_score;
+    json["projection_hash"] = to_hex(report.projection_hash);
+    json["risk_score"] = report.risk_score;
     json["measured_risks"] = nlohmann::json::array();
     for (const auto& measured : report.measured_risks) {
         json["measured_risks"].push_back(measured_risk_json(measured));

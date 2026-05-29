@@ -8,6 +8,7 @@
 
 #include "pv/kernel/canonical_codec.hpp"
 #include "pv/measure/risk_lattice.hpp"
+#include "pv/measure/risk_projection.hpp"
 #include "pv/storage/repository.hpp"
 
 namespace pv {
@@ -78,7 +79,8 @@ MeasurementRecord MeasurementStore::load_record(Hash256 measurement_object) cons
 std::optional<MeasurementLoadResult> MeasurementStore::load_cached(
     std::string_view branch,
     CommitId commit,
-    Hash256 spec_hash) const {
+    Hash256 spec_hash,
+    RiskProjection projection) const {
     try {
         const auto entry = index_.find(branch, commit, spec_hash);
         if (!entry.has_value()) {
@@ -89,7 +91,6 @@ std::optional<MeasurementLoadResult> MeasurementStore::load_cached(
         if (record.commit != commit
             || record.spec_hash != spec_hash
             || record.risk != entry->risk
-            || record.projection != entry->projection
             || record.measurement_hash != entry->measurement_object
             || record.evidence_root != measurement_evidence_root(record.evidence_objects)) {
             return std::nullopt;
@@ -116,11 +117,12 @@ std::optional<MeasurementLoadResult> MeasurementStore::load_cached(
         measured.commit_root = record.commit_root;
         measured.spec_hash = record.spec_hash;
         measured.value = record.risk;
-        measured.projection = record.projection;
+        measured.projection = project(record.risk, projection);
         measured.evidence = std::move(evidence);
         measured.evidence_root = record.evidence_root;
         measured.measurement_object = record.measurement_hash;
         measured.measurement_hash = record.measurement_hash;
+        measured.projection_result = make_projection_result(record.measurement_hash, record.risk, projection);
         return MeasurementLoadResult{std::move(measured), std::move(record), true};
     } catch (const std::exception&) {
         return std::nullopt;
@@ -174,7 +176,7 @@ MeasurementLoadResult MeasurementStore::measure_or_load_commit(
     const MeasurementSpec& spec,
     const Verifier* verifier) const {
     const auto spec_hash = put_spec(spec);
-    if (auto cached = load_cached(branch, commit, spec_hash); cached.has_value()) {
+    if (auto cached = load_cached(branch, commit, spec_hash, spec.projection); cached.has_value()) {
         return *cached;
     }
     return compute_and_store(branch, commit, spec, verifier);

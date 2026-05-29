@@ -55,7 +55,31 @@ TEST_CASE("repair distance is zero for legal state and positive for illegal stat
 
     REQUIRE(clean_repair.value == 0);
     REQUIRE(illegal_repair.value > 0);
+    REQUIRE(illegal_repair.evidence.explanation.find("repair basis hash:") != std::string::npos);
+    REQUIRE(illegal_repair.evidence.explanation.find("minimum witness operation batch hash:") != std::string::npos);
 
     std::filesystem::remove_all(root);
 }
 
+TEST_CASE("repair basis hash changes when repair operators change") {
+    RepairOperator expire;
+    expire.name = "expire_pointer";
+    expire.pointer = PointerId{1};
+    expire.delta.append_unlink(PointerRemove{PointerId{1}});
+
+    RepairOperator lower;
+    lower.name = "lower_weight_to_bound";
+    lower.pointer = PointerId{1};
+    lower.attribute = "weight";
+    lower.delta.append_set_pointer_weight(PointerId{1}, Weight{1.0});
+
+    RepairBasis left;
+    left.operators = {expire};
+    left.basis_hash = repair_basis_hash(left);
+
+    RepairBasis right;
+    right.operators = {expire, lower};
+    right.basis_hash = repair_basis_hash(right);
+
+    REQUIRE(left.basis_hash != right.basis_hash);
+}

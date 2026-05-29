@@ -2,6 +2,7 @@
 #include "pv/measure/measurement_record.hpp"
 
 #include <algorithm>
+#include <stdexcept>
 #include <utility>
 
 #include "pv/hash/hasher.hpp"
@@ -18,7 +19,7 @@ void sort_hashes(std::vector<Hash256>& hashes) {
 }
 
 void encode_body(CanonicalWriter& writer, const MeasurementRecord& record) {
-    writer.string("MeasurementRecord:v1");
+    writer.string("MeasurementRecord:v2");
     writer.hash(record.commit.value);
     writer.hash(record.commit_root);
     writer.hash(record.spec_hash);
@@ -26,7 +27,6 @@ void encode_body(CanonicalWriter& writer, const MeasurementRecord& record) {
     writer.u64(record.risk.law_distance);
     writer.u64(record.risk.repair_distance);
     writer.u64(record.risk.surprise);
-    writer.u64(record.projection);
     auto evidence_objects = record.evidence_objects;
     sort_hashes(evidence_objects);
     writer.u64(evidence_objects.size());
@@ -54,7 +54,10 @@ void encode(CanonicalWriter& writer, const MeasurementRecord& record) {
 }
 
 MeasurementRecord decode_measurement_record(CanonicalReader& reader) {
-    reader.expect_tag("MeasurementRecord:v1");
+    const auto tag = reader.string();
+    if (tag != "MeasurementRecord:v1" && tag != "MeasurementRecord:v2") {
+        throw std::runtime_error("canonical stream has unexpected type tag");
+    }
     MeasurementRecord record;
     record.commit = CommitId{reader.hash()};
     record.commit_root = reader.hash();
@@ -63,7 +66,9 @@ MeasurementRecord decode_measurement_record(CanonicalReader& reader) {
     record.risk.law_distance = reader.u64();
     record.risk.repair_distance = reader.u64();
     record.risk.surprise = reader.u64();
-    record.projection = reader.u64();
+    if (tag == "MeasurementRecord:v1") {
+        record.projection = reader.u64();
+    }
     const auto evidence_count = reader.u64();
     record.evidence_objects.reserve(static_cast<std::size_t>(evidence_count));
     for (std::uint64_t index = 0; index < evidence_count; ++index) {

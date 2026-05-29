@@ -131,6 +131,9 @@ add_library(pointerverse_measure
     src/measure/risk_value.cpp
     src/measure/risk_lattice.cpp
     src/measure/risk_evidence.cpp
+    src/measure/graph_view.cpp
+    src/measure/graph_functional.cpp
+    src/measure/cut_analysis.cpp
     src/measure/structural_measure.cpp
     src/measure/law_measure.cpp
     src/measure/repair_measure.cpp
@@ -308,6 +311,9 @@ if(POINTERVERSE_BUILD_TESTS)
         tests/kernel/vm_tests.cpp
         tests/measure/risk_lattice_tests.cpp
         tests/measure/calibration_tests.cpp
+        tests/measure/graph_view_tests.cpp
+        tests/measure/graph_functional_tests.cpp
+        tests/measure/cut_analysis_tests.cpp
         tests/measure/structural_measure_tests.cpp
         tests/measure/law_measure_tests.cpp
         tests/measure/repair_measure_tests.cpp

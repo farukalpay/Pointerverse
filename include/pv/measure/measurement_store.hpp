@@ -67,7 +67,8 @@ private:
     [[nodiscard]] std::optional<MeasurementLoadResult> load_cached(
         std::string_view branch,
         CommitId commit,
-        Hash256 spec_hash) const;
+        Hash256 spec_hash,
+        RiskProjection projection) const;
 
     Repository& repository_;
     MeasurementIndex index_;

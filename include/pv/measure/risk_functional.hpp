@@ -9,6 +9,7 @@
 #include "pv/measure/measurement_spec.hpp"
 #include "pv/measure/repair_measure.hpp"
 #include "pv/measure/risk_evidence.hpp"
+#include "pv/measure/risk_projection.hpp"
 #include "pv/measure/risk_value.hpp"
 #include "pv/runtime/ids.hpp"
 
@@ -22,6 +23,7 @@ struct MeasuredRisk {
     Hash256 spec_hash;
     RiskVector value;
     std::uint64_t projection{0};
+    ProjectionResult projection_result;
     std::vector<RiskEvidence> evidence;
     Hash256 evidence_root;
     Hash256 measurement_object;

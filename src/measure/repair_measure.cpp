@@ -2,15 +2,16 @@
 #include "pv/measure/repair_measure.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <deque>
-#include <map>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <string>
 #include <vector>
 
-#include "pv/core/delta.hpp"
-#include "pv/hash/canonical.hpp"
+#include "pv/hash/hasher.hpp"
+#include "pv/kernel/canonical_codec.hpp"
 #include "pv/storage/object_codec.hpp"
 #include "pv/storage/repository.hpp"
 
@@ -21,18 +22,33 @@ bool active_at(const PointerSnapshot& pointer, Epoch epoch) noexcept {
     return pointer.born_at <= epoch && (!pointer.expires_at.has_value() || epoch < *pointer.expires_at);
 }
 
+void write_object(CanonicalWriter& writer, ObjectId id) {
+    writer.u32(id.index);
+    writer.u32(id.generation);
+}
+
+void write_pointer(CanonicalWriter& writer, PointerId id) {
+    writer.u64(id.value);
+}
+
+void sort_objects(std::vector<ObjectId>& objects) {
+    std::ranges::sort(objects, [](ObjectId left, ObjectId right) {
+        return left < right;
+    });
+    objects.erase(std::ranges::unique(objects).begin(), objects.end());
+}
+
+void sort_pointers(std::vector<PointerId>& pointers) {
+    std::ranges::sort(pointers, {}, &PointerId::value);
+    pointers.erase(std::ranges::unique(pointers).begin(), pointers.end());
+}
+
 std::vector<ObjectId> violation_objects(const CommitRecord& record) {
     std::vector<ObjectId> objects;
     for (const auto& violation : record.violations) {
         objects.insert(objects.end(), violation.objects.begin(), violation.objects.end());
     }
-    std::ranges::sort(objects, [](ObjectId left, ObjectId right) {
-        if (left.index != right.index) {
-            return left.index < right.index;
-        }
-        return left.generation < right.generation;
-    });
-    objects.erase(std::ranges::unique(objects).begin(), objects.end());
+    sort_objects(objects);
     return objects;
 }
 
@@ -41,8 +57,7 @@ std::vector<PointerId> violation_pointers(const CommitRecord& record) {
     for (const auto& violation : record.violations) {
         pointers.insert(pointers.end(), violation.pointers.begin(), violation.pointers.end());
     }
-    std::ranges::sort(pointers, {}, &PointerId::value);
-    pointers.erase(std::ranges::unique(pointers).begin(), pointers.end());
+    sort_pointers(pointers);
     return pointers;
 }
 
@@ -72,16 +87,6 @@ bool legal_state(const Verifier& verifier, const WorldSnapshot& before, const Wo
     return result.violations.empty();
 }
 
-void add_unique_delta(std::vector<Delta>& candidates, std::set<std::string>& seen, Delta delta) {
-    if (delta.ops.empty()) {
-        return;
-    }
-    const auto key = to_hex(canonical_hash(delta));
-    if (seen.insert(key).second) {
-        candidates.push_back(std::move(delta));
-    }
-}
-
 const Attribute* attribute_named(const std::vector<Attribute>& attributes, std::string_view name) {
     for (const auto& attribute : attributes) {
         if (attribute.key == name) {
@@ -91,12 +96,42 @@ const Attribute* attribute_named(const std::vector<Attribute>& attributes, std::
     return nullptr;
 }
 
-std::vector<Delta> repair_candidates(
+bool operator_less(const RepairOperator& left, const RepairOperator& right) {
+    if (left.name != right.name) {
+        return left.name < right.name;
+    }
+    if (left.object != right.object) {
+        return left.object < right.object;
+    }
+    if (left.pointer.value != right.pointer.value) {
+        return left.pointer.value < right.pointer.value;
+    }
+    if (left.attribute != right.attribute) {
+        return left.attribute < right.attribute;
+    }
+    return to_hex(repair_operator_hash(left)) < to_hex(repair_operator_hash(right));
+}
+
+void add_operator(
+    RepairBasis& basis,
+    std::set<std::string>& seen,
+    RepairOperator op,
+    std::uint32_t max_candidates) {
+    if (op.delta.ops.empty() || basis.operators.size() >= max_candidates) {
+        return;
+    }
+    const auto hash = to_hex(repair_operator_hash(op));
+    if (seen.insert(hash).second) {
+        basis.operators.push_back(std::move(op));
+    }
+}
+
+RepairBasis canonical_repair_basis(
     const CommitRecord& record,
     const WorldSnapshot& before,
     const WorldSnapshot& current,
     std::uint32_t max_candidates) {
-    std::vector<Delta> candidates;
+    RepairBasis basis;
     std::set<std::string> seen;
     const auto focus_objects = violation_objects(record);
     auto focus_pointers = violation_pointers(record);
@@ -107,15 +142,10 @@ std::vector<Delta> repair_candidates(
             }
         }
     }
-    std::ranges::sort(focus_pointers, {}, &PointerId::value);
-    focus_pointers.erase(std::ranges::unique(focus_pointers).begin(), focus_pointers.end());
-
-    auto limited = [&] {
-        return candidates.size() >= max_candidates;
-    };
+    sort_pointers(focus_pointers);
 
     for (const auto pointer_id : focus_pointers) {
-        if (limited()) {
+        if (basis.operators.size() >= max_candidates) {
             break;
         }
         const auto* pointer = current.pointer(pointer_id);
@@ -125,37 +155,57 @@ std::vector<Delta> repair_candidates(
         if (active_at(*pointer, current.epoch)) {
             Delta expire;
             expire.append_unlink(PointerRemove{pointer_id});
-            add_unique_delta(candidates, seen, std::move(expire));
+            add_operator(
+                basis,
+                seen,
+                RepairOperator{"expire_pointer", std::move(expire), {}, pointer_id, {}},
+                max_candidates);
+        }
+        if (!std::isfinite(pointer->weight.value) || pointer->weight.value > 1.0) {
+            Delta lower;
+            lower.append_set_pointer_weight(pointer_id, Weight{1.0});
+            add_operator(
+                basis,
+                seen,
+                RepairOperator{"lower_weight_to_bound", std::move(lower), {}, pointer_id, "weight"},
+                max_candidates);
         }
         for (const auto& attribute : pointer->attributes) {
-            if (limited()) {
+            if (basis.operators.size() >= max_candidates) {
                 break;
             }
             Delta remove;
             remove.append_remove_pointer_attribute(pointer_id, attribute.key);
-            add_unique_delta(candidates, seen, std::move(remove));
+            add_operator(
+                basis,
+                seen,
+                RepairOperator{"remove_attribute", std::move(remove), {}, pointer_id, attribute.key},
+                max_candidates);
         }
         if (const auto* previous = before.pointer(pointer_id); previous != nullptr) {
             for (const auto& attribute : pointer->attributes) {
-                if (limited()) {
+                if (basis.operators.size() >= max_candidates) {
                     break;
                 }
                 const auto* old = attribute_named(previous->attributes, attribute.key);
                 if (old == nullptr) {
-                    Delta remove;
-                    remove.append_remove_pointer_attribute(pointer_id, attribute.key);
-                    add_unique_delta(candidates, seen, std::move(remove));
-                } else if (!(old->value == attribute.value)) {
+                    continue;
+                }
+                if (!(old->value == attribute.value)) {
                     Delta restore;
                     restore.append_set_pointer_attribute(pointer_id, *old);
-                    add_unique_delta(candidates, seen, std::move(restore));
+                    add_operator(
+                        basis,
+                        seen,
+                        RepairOperator{"restore_previous_attribute", std::move(restore), {}, pointer_id, attribute.key},
+                        max_candidates);
                 }
             }
         }
     }
 
     for (const auto object_id : focus_objects) {
-        if (limited()) {
+        if (basis.operators.size() >= max_candidates) {
             break;
         }
         const auto* object = current.object(object_id);
@@ -163,36 +213,108 @@ std::vector<Delta> repair_candidates(
             continue;
         }
         for (const auto& attribute : object->attributes) {
-            if (limited()) {
+            if (basis.operators.size() >= max_candidates) {
                 break;
             }
             Delta remove;
             remove.append_remove_object_attribute(ObjectRef{object_id}, attribute.key);
-            add_unique_delta(candidates, seen, std::move(remove));
+            add_operator(
+                basis,
+                seen,
+                RepairOperator{"remove_attribute", std::move(remove), object_id, {}, attribute.key},
+                max_candidates);
         }
         if (const auto* previous = before.object(object_id); previous != nullptr) {
             for (const auto& attribute : object->attributes) {
-                if (limited()) {
+                if (basis.operators.size() >= max_candidates) {
                     break;
                 }
                 const auto* old = attribute_named(previous->attributes, attribute.key);
-                if (old == nullptr) {
-                    Delta remove;
-                    remove.append_remove_object_attribute(ObjectRef{object_id}, attribute.key);
-                    add_unique_delta(candidates, seen, std::move(remove));
-                } else if (!(old->value == attribute.value)) {
-                    Delta restore;
-                    restore.append_set_object_attribute(ObjectRef{object_id}, *old);
-                    add_unique_delta(candidates, seen, std::move(restore));
+                if (old == nullptr || old->value == attribute.value) {
+                    continue;
                 }
+                Delta restore;
+                restore.append_set_object_attribute(ObjectRef{object_id}, *old);
+                add_operator(
+                    basis,
+                    seen,
+                    RepairOperator{"restore_previous_attribute", std::move(restore), object_id, {}, attribute.key},
+                    max_candidates);
             }
         }
     }
 
-    return candidates;
+    std::ranges::sort(basis.operators, operator_less);
+    basis.basis_hash = repair_basis_hash(basis);
+    return basis;
+}
+
+std::string repair_explanation(
+    const RepairBasis& basis,
+    std::uint32_t search_depth,
+    std::size_t frontier_size,
+    Hash256 witness_hash,
+    std::string_view status) {
+    std::ostringstream explanation;
+    explanation << status
+                << "; repair basis hash: " << to_hex(basis.basis_hash)
+                << "; operators: " << basis.operators.size()
+                << "; search depth: " << search_depth
+                << "; frontier size: " << frontier_size;
+    if (!empty(witness_hash)) {
+        explanation << "; minimum witness operation batch hash: " << to_hex(witness_hash);
+    }
+    return explanation.str();
+}
+
+std::uint64_t expansion_limit(RepairSearchOptions options) noexcept {
+    const auto depth = static_cast<std::uint64_t>(options.max_depth) + 1U;
+    if (options.max_candidates == 0) {
+        return 0;
+    }
+    if (depth > std::numeric_limits<std::uint64_t>::max() / options.max_candidates) {
+        return std::numeric_limits<std::uint64_t>::max();
+    }
+    return depth * options.max_candidates;
 }
 
 }  // namespace
+
+Hash256 repair_operator_hash(const RepairOperator& op) {
+    CanonicalWriter writer;
+    writer.string("RepairOperator:v1");
+    writer.string(op.name);
+    write_object(writer, op.object);
+    write_pointer(writer, op.pointer);
+    writer.string(op.attribute);
+    writer.hash(canonical_hash(op.delta));
+    return sha256(writer.bytes());
+}
+
+Hash256 repair_basis_hash(RepairBasis basis) {
+    std::ranges::sort(basis.operators, operator_less);
+    CanonicalWriter writer;
+    writer.string("RepairBasis:v1");
+    writer.u64(basis.operators.size());
+    for (const auto& op : basis.operators) {
+        writer.hash(repair_operator_hash(op));
+    }
+    return sha256(writer.bytes());
+}
+
+Hash256 repair_operation_batch_hash(std::vector<Hash256> operations) {
+    std::ranges::sort(operations, [](Hash256 left, Hash256 right) {
+        return to_hex(left) < to_hex(right);
+    });
+    operations.erase(std::ranges::unique(operations).begin(), operations.end());
+    CanonicalWriter writer;
+    writer.string("RepairOperationBatch:v1");
+    writer.u64(operations.size());
+    for (const auto hash : operations) {
+        writer.hash(hash);
+    }
+    return sha256(writer.bytes());
+}
 
 MeasuredComponent RepairDistanceMeasure::measure(
     const Repository& repository,
@@ -223,6 +345,8 @@ MeasuredComponent RepairDistanceMeasure::measure(
         }
     }
 
+    const auto basis = canonical_repair_basis(record, before, target, options.max_candidates);
+
     MeasuredComponent component;
     component.name = "repair";
     component.evidence.component = component.name;
@@ -234,44 +358,58 @@ MeasuredComponent RepairDistanceMeasure::measure(
     component.evidence.laws = violation_laws(record);
 
     if (record.violations.empty()) {
-        component.evidence.explanation = "accepted legal state; minimum bounded repair depth: 0";
+        component.evidence.explanation = repair_explanation(basis, 0, 0, {}, "accepted legal state; minimum bounded repair depth: 0");
         return component;
     }
     if (verifier == nullptr) {
         component.value = static_cast<std::uint64_t>(options.max_depth) + 1U;
-        component.evidence.explanation = "bounded repair search unavailable because verifier was not supplied";
+        component.evidence.explanation = repair_explanation(
+            basis,
+            options.max_depth,
+            0,
+            {},
+            "bounded repair search unavailable because verifier was not supplied");
         return component;
     }
     if (legal_state(*verifier, before, target)) {
-        component.evidence.explanation = "accepted legal state; minimum bounded repair depth: 0";
+        component.evidence.explanation = repair_explanation(basis, 0, 0, {}, "accepted legal state; minimum bounded repair depth: 0");
         return component;
     }
 
     struct Node {
         WorldSnapshot snapshot;
         std::uint32_t depth{0};
+        std::vector<Hash256> witness_ops;
     };
+
     std::deque<Node> queue;
     std::set<std::string> seen_snapshots;
-    queue.push_back(Node{target, 0});
+    queue.push_back(Node{target, 0, {}});
     seen_snapshots.insert(to_hex(target.canonical_hash()));
-    std::uint32_t candidates_seen = 0;
+    std::size_t frontier_size = queue.size();
+    std::uint64_t expansions = 0;
+    const auto max_expansions = expansion_limit(options);
 
     while (!queue.empty()) {
+        frontier_size = std::max(frontier_size, queue.size());
         const auto node = std::move(queue.front());
         queue.pop_front();
         if (node.depth >= options.max_depth) {
             continue;
         }
-        const auto candidates = repair_candidates(record, before, node.snapshot, options.max_candidates);
-        for (const auto& candidate : candidates) {
-            if (candidates_seen >= options.max_candidates) {
+        for (const auto& op : basis.operators) {
+            if (max_expansions > 0 && expansions >= max_expansions) {
                 component.value = static_cast<std::uint64_t>(options.max_depth) + 1U;
-                component.evidence.explanation = "bounded repair search exhausted";
+                component.evidence.explanation = repair_explanation(
+                    basis,
+                    options.max_depth,
+                    frontier_size,
+                    {},
+                    "bounded canonical repair basis exhausted");
                 return component;
             }
-            candidates_seen += 1;
-            const auto next = apply_delta_to_snapshot(node.snapshot, candidate);
+            expansions += 1;
+            const auto next = apply_delta_to_snapshot(node.snapshot, op.delta);
             if (!next.has_value()) {
                 continue;
             }
@@ -279,20 +417,31 @@ MeasuredComponent RepairDistanceMeasure::measure(
             if (!seen_snapshots.insert(hash).second) {
                 continue;
             }
+            auto witness_ops = node.witness_ops;
+            witness_ops.push_back(repair_operator_hash(op));
             const auto next_depth = node.depth + 1U;
             if (legal_state(*verifier, before, *next)) {
+                const auto witness_hash = repair_operation_batch_hash(witness_ops);
                 component.value = next_depth;
-                std::ostringstream explanation;
-                explanation << "minimum bounded repair depth: " << next_depth;
-                component.evidence.explanation = explanation.str();
+                component.evidence.explanation = repair_explanation(
+                    basis,
+                    next_depth,
+                    frontier_size,
+                    witness_hash,
+                    "minimum bounded repair depth found");
                 return component;
             }
-            queue.push_back(Node{*next, next_depth});
+            queue.push_back(Node{*next, next_depth, std::move(witness_ops)});
         }
     }
 
     component.value = static_cast<std::uint64_t>(options.max_depth) + 1U;
-    component.evidence.explanation = "bounded repair search exhausted";
+    component.evidence.explanation = repair_explanation(
+        basis,
+        options.max_depth,
+        frontier_size,
+        {},
+        "bounded canonical repair basis exhausted");
     return component;
 }
 

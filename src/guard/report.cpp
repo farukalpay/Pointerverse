@@ -96,6 +96,8 @@ nlohmann::json measured_risk_json(const MeasuredRisk& measured) {
     json["spec_hash"] = to_hex(measured.spec_hash);
     json["risk"] = risk_vector_json(measured.value);
     json["projection"] = measured.projection;
+    json["projection_policy_hash"] = to_hex(measured.projection_result.projection_policy_hash);
+    json["projection_hash"] = to_hex(measured.projection_result.projection_hash);
     json["evidence_root"] = to_hex(measured.evidence_root);
     json["measurement_object"] = to_hex(measured.measurement_object);
     json["measurement_hash"] = to_hex(measured.measurement_hash);
@@ -188,12 +190,13 @@ std::string render_guard_report_text(const GuardReport& report) {
     output << "Pointerverse Guard\n";
     output << "------------------\n";
     output << fmt::format(
-        "measured risk: structural={} law={} repair={} surprise={}\n",
+        "risk vector: structural={} law={} repair={} surprise={}\n",
         report.measured_risk.structural,
         report.measured_risk.law_distance,
         report.measured_risk.repair_distance,
         report.measured_risk.surprise);
     output << fmt::format("projection: {}\n", report.projected_score);
+    output << fmt::format("projection policy: {}\n", to_hex(report.projection_policy_hash).substr(0, 12));
     output << fmt::format("measurement spec: {}\n", to_hex(report.measurement_spec_hash).substr(0, 12));
     if (!empty(report.baseline_hash)) {
         output << fmt::format("baseline: {} {}\n", report.baseline, to_hex(report.baseline_hash).substr(0, 12));
@@ -235,12 +238,13 @@ std::string render_guard_report_markdown(const GuardReport& report) {
     std::ostringstream output;
     output << "## Pointerverse Guard\n\n";
     output << fmt::format(
-        "Measured risk: **structural={} law={} repair={} surprise={}**\n",
+        "Risk vector: **structural={} law={} repair={} surprise={}**\n",
         report.measured_risk.structural,
         report.measured_risk.law_distance,
         report.measured_risk.repair_distance,
         report.measured_risk.surprise);
     output << fmt::format("Projection: **{}**\n", report.projected_score);
+    output << fmt::format("Projection policy: `{}`\n", to_hex(report.projection_policy_hash).substr(0, 12));
     output << fmt::format("Measurement spec: `{}`\n", to_hex(report.measurement_spec_hash).substr(0, 12));
     if (!empty(report.baseline_hash)) {
         output << fmt::format("Baseline: **{}** `{}`\n", report.baseline, to_hex(report.baseline_hash).substr(0, 12));
@@ -285,12 +289,14 @@ std::string render_guard_report_json(const GuardReport& report) {
     json["base"] = report.base;
     json["head"] = report.head;
     json["mode"] = report.mode;
-    json["risk_score"] = report.risk_score;
     json["measurement_spec_hash"] = to_hex(report.measurement_spec_hash);
-    json["baseline"] = report.baseline;
-    json["baseline_hash"] = empty(report.baseline_hash) ? "" : to_hex(report.baseline_hash);
+    json["projection_policy_hash"] = to_hex(report.projection_policy_hash);
     json["measured_risk"] = risk_vector_json(report.measured_risk);
     json["projected_score"] = report.projected_score;
+    json["projection_hash"] = to_hex(report.projection_hash);
+    json["risk_score"] = report.risk_score;
+    json["baseline"] = report.baseline;
+    json["baseline_hash"] = empty(report.baseline_hash) ? "" : to_hex(report.baseline_hash);
     json["strict_policy"] = strict_policy_json(report.strict_policy);
     json["strict_decision"] = strict_decision_json(report.strict_decision);
     json["status"] = report.status;

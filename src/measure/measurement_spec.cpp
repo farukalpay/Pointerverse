@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "pv/measure/measurement_spec.hpp"
 
+#include <stdexcept>
+
 #include "pv/hash/hasher.hpp"
 #include "pv/kernel/canonical_codec.hpp"
 
@@ -25,15 +27,11 @@ bool operator==(const MeasurementSpec& left, const MeasurementSpec& right) noexc
         && left.surprise == right.surprise
         && left.repair_options.max_depth == right.repair_options.max_depth
         && left.repair_options.max_candidates == right.repair_options.max_candidates
-        && left.projection.structural_weight == right.projection.structural_weight
-        && left.projection.law_weight == right.projection.law_weight
-        && left.projection.repair_weight == right.projection.repair_weight
-        && left.projection.surprise_weight == right.projection.surprise_weight
         && left.verifier_id == right.verifier_id;
 }
 
 void encode(CanonicalWriter& writer, const MeasurementSpec& spec) {
-    writer.string("MeasurementSpec:v1");
+    writer.string("MeasurementSpec:v2");
     writer.string(spec.id);
     writer.u32(spec.version);
     writer.u8(spec.structural ? 1U : 0U);
@@ -42,15 +40,14 @@ void encode(CanonicalWriter& writer, const MeasurementSpec& spec) {
     writer.u8(spec.surprise ? 1U : 0U);
     writer.u32(spec.repair_options.max_depth);
     writer.u32(spec.repair_options.max_candidates);
-    writer.u64(spec.projection.structural_weight);
-    writer.u64(spec.projection.law_weight);
-    writer.u64(spec.projection.repair_weight);
-    writer.u64(spec.projection.surprise_weight);
     writer.string(spec.verifier_id);
 }
 
 MeasurementSpec decode_measurement_spec(CanonicalReader& reader) {
-    reader.expect_tag("MeasurementSpec:v1");
+    const auto tag = reader.string();
+    if (tag != "MeasurementSpec:v1" && tag != "MeasurementSpec:v2") {
+        throw std::runtime_error("canonical stream has unexpected type tag");
+    }
     MeasurementSpec spec;
     spec.id = reader.string();
     spec.version = reader.u32();
@@ -60,10 +57,12 @@ MeasurementSpec decode_measurement_spec(CanonicalReader& reader) {
     spec.surprise = reader.u8() != 0;
     spec.repair_options.max_depth = reader.u32();
     spec.repair_options.max_candidates = reader.u32();
-    spec.projection.structural_weight = reader.u64();
-    spec.projection.law_weight = reader.u64();
-    spec.projection.repair_weight = reader.u64();
-    spec.projection.surprise_weight = reader.u64();
+    if (tag == "MeasurementSpec:v1") {
+        spec.projection.structural_weight = reader.u64();
+        spec.projection.law_weight = reader.u64();
+        spec.projection.repair_weight = reader.u64();
+        spec.projection.surprise_weight = reader.u64();
+    }
     spec.verifier_id = reader.string();
     return spec;
 }

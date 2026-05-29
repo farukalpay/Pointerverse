@@ -41,6 +41,8 @@ struct GuardReport {
     std::string head;
     std::string mode;
     Hash256 measurement_spec_hash;
+    Hash256 projection_policy_hash;
+    Hash256 projection_hash;
     std::string baseline;
     Hash256 baseline_hash;
     RiskVector measured_risk;

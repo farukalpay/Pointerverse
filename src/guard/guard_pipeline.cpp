@@ -295,7 +295,10 @@ GuardRunResult run_guard(const GuardRunOptions& options) {
     report.evidence_commits = commits;
     report.measured_risks = std::move(measured.measured);
     report.measured_risk = joined_risk(report.measured_risks);
-    report.projected_score = project(report.measured_risk, measurement_spec.projection);
+    const auto projection = make_projection_result(Hash256{}, report.measured_risk, measurement_spec.projection);
+    report.projection_policy_hash = projection.projection_policy_hash;
+    report.projection_hash = projection.projection_hash;
+    report.projected_score = projection.projected_score;
     report.risk_score = static_cast<int>(std::min<std::uint64_t>(report.projected_score, 100));
     report.strict_policy = options.strict_policy;
     report.strict_decision = strict_decision_for(report, baseline.has_value() ? &*baseline : nullptr);

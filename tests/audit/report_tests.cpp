@@ -65,13 +65,14 @@ TEST_CASE("audit report renders text and JSON from observed violations") {
     const auto text = render_audit_report_text(report);
     REQUIRE(text.find("Audit report: main") != std::string::npos);
     REQUIRE(text.find("no_pr_without_tests") != std::string::npos);
-    REQUIRE(text.find("risk: structural=") != std::string::npos);
+    REQUIRE(text.find("risk vector: structural=") != std::string::npos);
 
     const auto json = nlohmann::json::parse(render_audit_report_json(report));
     REQUIRE(json["branch"] == "main");
     REQUIRE(json["commits_checked"] == 1);
     REQUIRE(json["risk"]["law_distance"] == 1);
     REQUIRE(json["projected_score"] == report.projected_score);
+    REQUIRE(json["projection_hash"].get<std::string>().size() == 64);
     REQUIRE(json["measurement_spec_hash"].get<std::string>().size() == 64);
     REQUIRE(json["measured_risks"].size() == 1);
     REQUIRE(json["violations"].size() == 1);
