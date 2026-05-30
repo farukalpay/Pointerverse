@@ -9,6 +9,8 @@ entire store bit for bit.
 In one line: version control for branching worlds. Fork a world, record the
 consequences, and check every step against your laws.
 
+Website: http://pointerverse.com
+
 ```txt
 World scripts / event logs / apps -> Kernel VM -> Runtime -> Store -> Sentinel
 ```
